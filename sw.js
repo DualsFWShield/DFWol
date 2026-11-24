@@ -2,7 +2,7 @@
    DFWol Studio v3 — Service Worker PWA (Cache Hors-Ligne & Support Web Widgets)
    ========================================================================== */
 
-const CACHE_NAME = "dfwol-studio-cache-v9";
+const CACHE_NAME = "dfwol-studio-cache-v10";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
@@ -62,17 +62,14 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req)
-        .then((networkRes) => {
-          if (networkRes && networkRes.ok) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, networkRes.clone()));
-          }
-          return networkRes;
-        })
-        .catch(() => cached);
-      return cached || fetchPromise;
-    })
+    fetch(req)
+      .then((networkRes) => {
+        if (networkRes && networkRes.ok) {
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, networkRes.clone()));
+        }
+        return networkRes;
+      })
+      .catch(() => caches.match(req))
   );
 });
 

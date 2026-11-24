@@ -175,7 +175,10 @@ function generateSecMsGecV2() {
 const escapeXml = (s) =>
   String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
-function sendWsText(sock, msg) {
+const MAX_TTS_CACHE = 60;
+const ttsServerCache = new Map();
+
+function buildWsTextFrame(msg) {
   const pl = Buffer.from(msg, "utf8");
   const mask = crypto.randomBytes(4);
   let hdr;
@@ -188,7 +191,7 @@ function sendWsText(sock, msg) {
   }
   const masked = Buffer.alloc(pl.length);
   for (let i = 0; i < pl.length; i++) masked[i] = pl[i] ^ mask[i % 4];
-  sock.write(Buffer.concat([hdr, mask, masked]));
+  return Buffer.concat([hdr, mask, masked]);
 }
 
 function synthesizeEdgeTtsNode(text, voice, lang, rate) {
@@ -197,7 +200,8 @@ function synthesizeEdgeTtsNode(text, voice, lang, rate) {
     const muid = crypto.randomBytes(16).toString("hex").toUpperCase();
     const connId = crypto.randomUUID().replace(/-/g, "");
     const wsPath = `/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_TOKEN}&Sec-MS-GEC=${sec}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connId}`;
-    const sock = tls.connect(443, "speech.platform.bing.com", { servername: "speech.platform.bing.com" }, () => {
+    const sock = tls.connect(443, "speech.platform.bing.com", { servername: "speech.platform.bing.com", family: 4 }, () => {
+      sock.setNoDelay(true);
       const req =
         `GET ${wsPath} HTTP/1.1\r\n` +
         `Host: speech.platform.bing.com\r\n` +
@@ -214,7 +218,7 @@ function synthesizeEdgeTtsNode(text, voice, lang, rate) {
     let handshakeDone = false;
     let buf = Buffer.alloc(0);
     const mp3Chunks = [];
-    const timer = setTimeout(() => { sock.destroy(); reject(new Error("TTS timeout")); }, 12000);
+    const timer = setTimeout(() => { sock.destroy(); reject(new Error("TTS timeout")); }, 20000);
 
     sock.on("data", (chunk) => {
       buf = Buffer.concat([buf, chunk]);
@@ -230,14 +234,15 @@ function synthesizeEdgeTtsNode(text, voice, lang, rate) {
         handshakeDone = true;
         buf = buf.subarray(idx + 4);
         const ts = new Date().toUTCString().replace("GMT", "GMT+0000 (Coordinated Universal Time)");
-        sendWsText(sock, `X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n`);
+        const cfgFrame = buildWsTextFrame(`X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n`);
         const safeLang = lang === "en" ? "en-US" : "fr-FR";
-        const safeVoice = voice || (lang === "en" ? "en-US-EmmaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural");
+        const safeVoice = voice || (lang === "en" ? "en-US-AriaNeural" : "fr-FR-DeniseNeural");
         const pct = Math.round((Number(rate || 1) - 1) * 100);
         const rateStr = `${pct >= 0 ? "+" : ""}${pct}%`;
         const reqId = crypto.randomUUID().replace(/-/g, "");
         const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${safeLang}'><voice name='${escapeXml(safeVoice)}'><prosody rate='${rateStr}'>${escapeXml(text)}</prosody></voice></speak>`;
-        sendWsText(sock, `X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
+        const ssmlFrame = buildWsTextFrame(`X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
+        sock.write(Buffer.concat([cfgFrame, ssmlFrame]));
       }
 
       while (handshakeDone && buf.length >= 2) {
@@ -298,14 +303,27 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
         return res.end("Missing text parameter");
       }
-      const mp3 = await synthesizeEdgeTtsNode(
-        text,
-        reqUrl.searchParams.get("voice"),
-        reqUrl.searchParams.get("lang") || "fr",
-        reqUrl.searchParams.get("rate") || "1"
-      );
+      const voice = reqUrl.searchParams.get("voice") || "";
+      const lang = reqUrl.searchParams.get("lang") || "fr";
+      const rate = reqUrl.searchParams.get("rate") || "1";
+      const cacheKey = `${voice}|${lang}|${rate}|${text}`;
+      let mp3 = ttsServerCache.get(cacheKey);
+      if (mp3) {
+        ttsServerCache.delete(cacheKey);
+        ttsServerCache.set(cacheKey, mp3);
+      } else {
+        mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate);
+        if (mp3 && mp3.length > 0) {
+          ttsServerCache.set(cacheKey, mp3);
+          if (ttsServerCache.size > MAX_TTS_CACHE) {
+            const oldestKey = ttsServerCache.keys().next().value;
+            if (oldestKey !== undefined) ttsServerCache.delete(oldestKey);
+          }
+        }
+      }
       res.writeHead(200, {
         "Content-Type": "audio/mpeg",
+        "Cache-Control": "public, max-age=86400",
         "Access-Control-Allow-Origin": "*"
       });
       return res.end(mp3);

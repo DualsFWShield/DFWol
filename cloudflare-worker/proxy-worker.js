@@ -205,7 +205,7 @@ async function synthesizeEdgeTtsWorker(text, voice, lang, rate) {
   );
 
   const safeLang = lang === "en" ? "en-US" : "fr-FR";
-  const safeVoice = voice || (lang === "en" ? "en-US-EmmaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural");
+  const safeVoice = voice || (lang === "en" ? "en-US-AriaNeural" : "fr-FR-DeniseNeural");
   const ratePct = Math.round((Number(rate || 1) - 1) * 100);
   const rateStr = `${ratePct >= 0 ? "+" : ""}${ratePct}%`;
   const reqId = crypto.randomUUID().replace(/-/g, "");
@@ -266,6 +266,7 @@ export default {
           status: 200,
           headers: {
             "Content-Type": "audio/mpeg",
+            "Cache-Control": "public, max-age=86400",
             "Access-Control-Allow-Origin": "*"
           }
         });

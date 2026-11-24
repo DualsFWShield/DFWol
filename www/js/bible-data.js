@@ -618,6 +618,7 @@ window.DFWolBible = (function () {
   return {
     WOL_LANG_CONFIG,
     BIBLE_BOOKS,
+    SCRIPTURE_REGEX,
     getLangConfig,
     getBookDisplayName,
     findBookByName,

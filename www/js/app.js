@@ -417,6 +417,28 @@
   // Texte du Jour Multi-Niveaux (1 Mot / 1 Phrase / Petit Paragraphe / Complet)
   // ==========================================================================
 
+  let dtPrewarmTimer = null;
+
+  function buildDailyTextSpeechTrack(d) {
+    const lang = d.lang || state.lang || "fr";
+    const fullRef = window.DFWolBible.expandScriptureRefFull(d.scriptureRef, lang);
+    const spokenRef =
+      window.DFWolAudio && window.DFWolAudio.formatScripturesForSpeech
+        ? window.DFWolAudio.formatScripturesForSpeech(fullRef, lang)
+        : fullRef;
+    const intro =
+      lang === "en"
+        ? `Daily text, ${d.formattedDate}. ${d.scriptureText} — ${spokenRef}.`
+        : `Texte du jour, ${d.formattedDate}. ${d.scriptureText} — ${spokenRef}.`;
+    return {
+      title: `${lang === "en" ? "Daily Text" : "Texte du jour"} — ${fullRef}`,
+      subtitle: d.formattedDate,
+      paragraphs: [intro, d.commentary],
+      lang,
+      mode: "tts"
+    };
+  }
+
   async function refreshDailyText(forceRefresh = false) {
     const dtDate = state.dtDate || new Date();
     const picker = document.getElementById("dash-dt-picker");
@@ -430,6 +452,14 @@
 
     renderDailyTextDisplay();
     updateWidgetPreviews(data);
+
+    if (dtPrewarmTimer) clearTimeout(dtPrewarmTimer);
+    dtPrewarmTimer = setTimeout(() => {
+      if (state.dtCurrentData === data && window.DFWolAudio && typeof window.DFWolAudio.prewarmText === "function") {
+        const track = buildDailyTextSpeechTrack(data);
+        window.DFWolAudio.prewarmText(track.paragraphs, track.lang);
+      }
+    }, 900);
 
     const syncInfo = await window.DFWolDailyText.syncWithCapacitorNativeWidget(data, state.widgetSettings);
     const lastSyncEl = document.getElementById("cap-last-sync-time");
@@ -1374,15 +1404,7 @@
 
     const speakDailyText = () => {
       if (!state.dtCurrentData || !window.DFWolAudio) return;
-      const d = state.dtCurrentData;
-      const fullRef = window.DFWolBible.expandScriptureRefFull(d.scriptureRef, d.lang);
-      window.DFWolAudio.playTrack({
-        title: `Texte du jour — ${fullRef}`,
-        subtitle: d.formattedDate,
-        text: `${d.formattedDate}. ${d.scriptureText}. ${fullRef}. ${d.commentary}`,
-        lang: d.lang,
-        mode: "tts"
-      });
+      window.DFWolAudio.playTrack(buildDailyTextSpeechTrack(state.dtCurrentData));
     };
     document.getElementById("btn-dt-speak")?.addEventListener("click", speakDailyText);
     document.getElementById("sw-btn-speak")?.addEventListener("click", speakDailyText);

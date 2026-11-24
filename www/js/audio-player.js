@@ -6,24 +6,24 @@
 window.DFWolAudio = (function () {
   "use strict";
 
-  const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v1";
+  const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v2";
   const SKIP_REFS_KEY = "dfwol_tts_skip_refs_v1";
   const htmlAudio = new Audio();
   htmlAudio.preload = "auto";
 
   const VOICE_CATALOG = {
     fr: [
-      { id: "fr-FR-VivienneMultilingualNeural", label: "✨ Vivienne (IA Naturelle)" },
-      { id: "fr-FR-RemyMultilingualNeural", label: "✨ Rémy (IA Naturelle)" },
-      { id: "fr-FR-DeniseNeural", label: "✨ Denise (IA Claire)" },
-      { id: "fr-FR-HenriNeural", label: "✨ Henri (IA Posée)" },
+      { id: "fr-FR-DeniseNeural", label: "✨ Denise (IA Rapide & Naturelle)" },
+      { id: "fr-FR-HenriNeural", label: "✨ Henri (IA Rapide & Posée)" },
+      { id: "fr-FR-VivienneMultilingualNeural", label: "✨ Vivienne (IA Multilingue)" },
+      { id: "fr-FR-RemyMultilingualNeural", label: "✨ Rémy (IA Multilingue)" },
       { id: "piper:fr_FR-siwis-medium", label: "🧠 Siwis (IA Hors-ligne)" },
       { id: "system", label: "📱 Voix Système / Native" }
     ],
     en: [
-      { id: "en-US-EmmaMultilingualNeural", label: "✨ Emma (Neural AI)" },
-      { id: "en-US-AndrewMultilingualNeural", label: "✨ Andrew (Neural AI)" },
-      { id: "en-US-AriaNeural", label: "✨ Aria (Neural Clear)" },
+      { id: "en-US-AriaNeural", label: "✨ Aria (Fast Neural AI)" },
+      { id: "en-US-EmmaMultilingualNeural", label: "✨ Emma (Multilingual AI)" },
+      { id: "en-US-AndrewMultilingualNeural", label: "✨ Andrew (Multilingual AI)" },
       { id: "en-GB-SoniaNeural", label: "✨ Sonia (Neural UK)" },
       { id: "piper:en_US-lessac-medium", label: "🧠 Lessac (Offline AI)" },
       { id: "system", label: "📱 System / Native Voice" }
@@ -31,8 +31,8 @@ window.DFWolAudio = (function () {
   };
 
   let voicePrefs = {
-    fr: "fr-FR-VivienneMultilingualNeural",
-    en: "en-US-EmmaMultilingualNeural"
+    fr: "fr-FR-DeniseNeural",
+    en: "en-US-AriaNeural"
   };
   let skipRefsInTts = true;
 
@@ -52,6 +52,7 @@ window.DFWolAudio = (function () {
     currentIndex: -1,
     activeEngine: null, // 'mp3' | 'neural-mp3' | 'piper-wasm' | 'native-tts' | 'web-tts' | null
     isPlaying: false,
+    isBuffering: false,
     rate: 1.0,
     ttsChunks: [],
     ttsChunkIndex: 0,
@@ -61,11 +62,15 @@ window.DFWolAudio = (function () {
     activeBlobUrl: null
   };
 
+  const MAX_TTS_CACHE_ENTRIES = 48;
+  const ttsAudioCache = new Map();
+  const inFlightSynth = new Map();
   const prefetchedChunks = new Map();
   let nativeListenersBound = false;
   let activeNativeUtteranceResolve = null;
   let activeNativeUtteranceId = null;
   let piperModulePromise = null;
+  let piperQueue = Promise.resolve();
   let uiBound = false;
 
   function isNativeCap() {
@@ -125,15 +130,81 @@ window.DFWolAudio = (function () {
   }
 
   /**
+   * Formate une liste de numéros de versets triés en prose naturelle (FR/EN).
+   */
+  function formatSpokenVerseList(verses, lang = "fr") {
+    const sorted = Array.from(new Set(verses.filter((n) => Number.isInteger(n) && n > 0))).sort((a, b) => a - b);
+    if (!sorted.length) return "";
+    const isEn = lang === "en";
+    const runs = [];
+    let start = sorted[0];
+    let end = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === end + 1) {
+        end = sorted[i];
+      } else {
+        runs.push([start, end]);
+        start = sorted[i];
+        end = sorted[i];
+      }
+    }
+    runs.push([start, end]);
+
+    const parts = runs.map(([s, e]) => {
+      if (s === e) return String(s);
+      if (e === s + 1 && runs.length === 1) return isEn ? `${s} and ${e}` : `${s} et ${e}`;
+      return isEn ? `${s} to ${e}` : `${s} à ${e}`;
+    });
+    const joined =
+      parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")}${isEn ? " and " : " et "}${parts[parts.length - 1]}`;
+    const prefix = sorted.length === 1 ? (isEn ? "verse " : "verset ") : isEn ? "verses " : "versets ";
+    return prefix + joined;
+  }
+
+  /**
+   * Convertit toute référence biblique ("Psaume 73:14", "Ps. 83:15-18", "Jude 5")
+   * en forme parlée sans deux-points pour éviter la lecture anglaise de "XX:YY".
+   */
+  function formatScripturesForSpeech(rawText, lang = "fr") {
+    const input = String(rawText || "");
+    if (!input || !window.DFWolBible || !window.DFWolBible.SCRIPTURE_REGEX) return input;
+    const bible = window.DFWolBible;
+    const re = new RegExp(bible.SCRIPTURE_REGEX.source, "gi");
+    return input.replace(re, (fullMatch) => {
+      const refs = bible.parseScriptureReferences(fullMatch, lang);
+      if (!refs || !refs.length) return fullMatch;
+      const ref = refs[0];
+      let bookName = bible.getBookDisplayName(ref.book, lang);
+      if (ref.book.num === 19 && ref.chapter) {
+        bookName = bookName.replace(/^(Psaumes|Psalms)/, lang === "en" ? "Psalm" : "Psaume");
+      }
+      if (Array.isArray(ref.verses) && ref.verses.length > 0) {
+        const spokenVerses = formatSpokenVerseList(ref.verses, lang);
+        return ref.book.chapters === 1 ? `${bookName}, ${spokenVerses}` : `${bookName} ${ref.chapter}, ${spokenVerses}`;
+      }
+      if (ref.chapterEnd && ref.chapterEnd > ref.chapter) {
+        return lang === "en"
+          ? `${bookName}, chapters ${ref.chapter} to ${ref.chapterEnd}`
+          : `${bookName}, chapitres ${ref.chapter} à ${ref.chapterEnd}`;
+      }
+      return `${bookName} ${ref.chapter}`;
+    });
+  }
+
+  /**
    * Nettoie un texte avant la lecture TTS :
    * - Supprime les versets entre parenthèses (ex: "(Lm 3:22 ; w24.01 30 § 16)", "(Éph. 2:12 ; Col. 1:21)")
    * - Supprime les cotes de publications ("w24.01 30 § 16", "w25.12 26-30", "w07 1/6 11 § 4", "mwb26", etc.)
-   * - Conserve les parenthèses de prose normale (ex: "(par exemple, un ami)")
+   * - Formate les références bibliques restantes pour une prononciation 100% naturelle dans la langue cible
    */
   function sanitizeTextForTts(rawText, lang = "fr") {
     let text = String(rawText || "").replace(/\s+/g, " ").trim();
     if (!text) return "";
-    if (!skipRefsInTts) return text;
+    if (!skipRefsInTts) {
+      return formatScripturesForSpeech(text, lang);
+    }
 
     const isRefOrPubInsideParens = (inner) => {
       const s = inner.trim();
@@ -184,12 +255,31 @@ window.DFWolAudio = (function () {
       .replace(/\s{2,}/g, " ")
       .trim();
 
-    return text;
+    return formatScripturesForSpeech(text, lang);
+  }
+
+  function splitClauseForFastStart(sentence, maxLen = 165) {
+    if (sentence.length <= maxLen) return [sentence];
+    const searchSlice = sentence.slice(0, maxLen);
+    let splitIdx = -1;
+    const sepRe = /[;:—–,]\s+/g;
+    let m;
+    while ((m = sepRe.exec(searchSlice)) !== null) {
+      if (m.index >= 70) splitIdx = m.index + 1;
+    }
+    if (splitIdx === -1) {
+      const lastSpace = searchSlice.lastIndexOf(" ");
+      if (lastSpace >= 70) splitIdx = lastSpace;
+    }
+    if (splitIdx <= 0) return [sentence];
+    return [sentence.slice(0, splitIdx).trim(), sentence.slice(splitIdx).trim()];
   }
 
   /**
-   * Découpe en segments naturels (~460 caractères max aux frontières de phrases)
-   * après nettoyage des versets parenthésés & cotes d'articles.
+   * Découpe progressif "Fast-Start" :
+   * - Chunk 0 <= 150 car. (démarrage quasi-instantané)
+   * - Chunk 1 <= 260 car.
+   * - Chunks 2+ <= 420 car.
    */
   function buildTtsChunks(paragraphsOrText, lang = "fr") {
     const chunks = [];
@@ -201,13 +291,25 @@ window.DFWolAudio = (function () {
           .split(/\n+/)
           .map((t, idx) => ({ text: t, pid: null, pIdx: idx }));
 
+    const getLimit = () => (chunks.length === 0 ? 150 : chunks.length === 1 ? 260 : 420);
+
     rawParas.forEach((p) => {
       const clean = sanitizeTextForTts(p.text || "", lang);
       if (!clean || /^[,.;:!?—–-]+$/.test(clean)) return;
-      const sentences = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
+      const rawSentences = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
+      const pieces = [];
+      rawSentences.forEach((s) => {
+        if (chunks.length === 0 && pieces.length === 0 && s.trim().length > 185) {
+          splitClauseForFastStart(s.trim(), 165).forEach((part) => part && pieces.push(part + " "));
+        } else {
+          pieces.push(s);
+        }
+      });
+
       let buffer = "";
-      sentences.forEach((sent) => {
-        if ((buffer + sent).length > 460 && buffer.trim()) {
+      pieces.forEach((sent) => {
+        const limit = getLimit();
+        if ((buffer + sent).length > limit && buffer.trim()) {
           chunks.push({ text: buffer.trim(), pid: p.pid, pIdx: p.pIdx });
           buffer = sent;
         } else {
@@ -222,13 +324,30 @@ window.DFWolAudio = (function () {
     return chunks;
   }
 
-  function base64ToBlobUrl(b64, mimeType = "audio/mpeg") {
+  function getCachedAudio(cacheKey) {
+    const hit = ttsAudioCache.get(cacheKey);
+    if (!hit) return null;
+    ttsAudioCache.delete(cacheKey);
+    ttsAudioCache.set(cacheKey, hit);
+    return hit;
+  }
+
+  function storeCachedAudio(cacheKey, blob, engine, engineLabel) {
+    if (!blob || blob.size <= 100) return;
+    if (ttsAudioCache.has(cacheKey)) ttsAudioCache.delete(cacheKey);
+    ttsAudioCache.set(cacheKey, { blob, engine, engineLabel });
+    if (ttsAudioCache.size > MAX_TTS_CACHE_ENTRIES) {
+      const oldestKey = ttsAudioCache.keys().next().value;
+      if (oldestKey !== undefined) ttsAudioCache.delete(oldestKey);
+    }
+  }
+
+  function base64ToBlob(b64, mimeType = "audio/mpeg") {
     const bin = atob(b64);
     const len = bin.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType });
-    return URL.createObjectURL(blob);
+    return new Blob([bytes], { type: mimeType });
   }
 
   function getTtsEndpointBase() {
@@ -250,72 +369,112 @@ window.DFWolAudio = (function () {
       window.DFWolToast && window.DFWolToast("Chargement du modèle vocal IA local (première utilisation)…");
       piperModulePromise = import("https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web/+esm");
     }
-    const tts = await piperModulePromise;
-    const wavBlob = await tts.predict({ text, voiceId: piperVoiceId });
-    return {
-      url: URL.createObjectURL(wavBlob),
-      engine: "piper-wasm",
-      engineLabel: "IA Locale"
+    const runTask = async () => {
+      const tts = await piperModulePromise;
+      const wavBlob = await tts.predict({ text, voiceId: piperVoiceId });
+      return {
+        blob: wavBlob,
+        engine: "piper-wasm",
+        engineLabel: "IA Locale"
+      };
     };
+    const next = piperQueue.then(runTask, runTask);
+    piperQueue = next.then(() => {}, () => {});
+    return next;
   }
 
   async function synthesizeChunkAudio(text, lang, voiceId) {
     const cleanText = String(text || "").trim();
     if (!cleanText || voiceId === "system") return null;
 
-    if (voiceId.startsWith("piper:")) {
-      const pid = voiceId.slice(6);
-      return await synthesizeViaPiper(cleanText, pid);
+    const cacheKey = `${voiceId}|${lang}|${cleanText}`;
+    const cached = getCachedAudio(cacheKey);
+    if (cached) {
+      return {
+        url: URL.createObjectURL(cached.blob),
+        engine: cached.engine,
+        engineLabel: cached.engineLabel,
+        fromCache: true
+      };
     }
 
-    const plugin = getNeuralPlugin();
-    if (plugin && typeof plugin.synthesizeEdgeNeural === "function") {
-      try {
-        const res = await plugin.synthesizeEdgeNeural({
-          text: cleanText,
-          voice: voiceId,
-          lang,
-          rate: 1.0
-        });
-        if (res && res.audioBase64) {
-          return {
-            url: base64ToBlobUrl(res.audioBase64, res.mimeType || "audio/mpeg"),
-            engine: "neural-mp3",
-            engineLabel: "IA Neuronale"
-          };
-        }
-      } catch (_) {}
+    if (inFlightSynth.has(cacheKey)) {
+      const entry = await inFlightSynth.get(cacheKey);
+      if (!entry) return null;
+      return {
+        url: URL.createObjectURL(entry.blob),
+        engine: entry.engine,
+        engineLabel: entry.engineLabel
+      };
     }
 
-    const endpoint = getTtsEndpointBase();
-    if (endpoint) {
-      try {
-        const url = `${endpoint}?text=${encodeURIComponent(cleanText)}&voice=${encodeURIComponent(voiceId)}&lang=${encodeURIComponent(lang)}&rate=1`;
-        const resp = await fetch(url);
-        if (resp.ok) {
-          const ct = resp.headers.get("Content-Type") || "";
-          if (ct.includes("audio")) {
-            const blob = await resp.blob();
-            if (blob.size > 100) {
-              return {
-                url: URL.createObjectURL(blob),
-                engine: "neural-mp3",
-                engineLabel: "IA Neuronale"
-              };
+    const work = (async () => {
+      if (voiceId.startsWith("piper:")) {
+        const pid = voiceId.slice(6);
+        const res = await synthesizeViaPiper(cleanText, pid);
+        if (res && res.blob) storeCachedAudio(cacheKey, res.blob, res.engine, res.engineLabel);
+        return res;
+      }
+
+      const plugin = getNeuralPlugin();
+      if (plugin && typeof plugin.synthesizeEdgeNeural === "function") {
+        try {
+          const res = await plugin.synthesizeEdgeNeural({
+            text: cleanText,
+            voice: voiceId,
+            lang,
+            rate: 1.0
+          });
+          if (res && res.audioBase64) {
+            const blob = base64ToBlob(res.audioBase64, res.mimeType || "audio/mpeg");
+            storeCachedAudio(cacheKey, blob, "neural-mp3", "IA Neuronale");
+            return { blob, engine: "neural-mp3", engineLabel: "IA Neuronale" };
+          }
+        } catch (_) {}
+      }
+
+      const endpoint = getTtsEndpointBase();
+      if (endpoint) {
+        try {
+          const url = `${endpoint}?text=${encodeURIComponent(cleanText)}&voice=${encodeURIComponent(voiceId)}&lang=${encodeURIComponent(lang)}&rate=1`;
+          const resp = await fetch(url);
+          if (resp.ok) {
+            const ct = resp.headers.get("Content-Type") || "";
+            if (ct.includes("audio")) {
+              const blob = await resp.blob();
+              if (blob.size > 100) {
+                storeCachedAudio(cacheKey, blob, "neural-mp3", "IA Neuronale");
+                return { blob, engine: "neural-mp3", engineLabel: "IA Neuronale" };
+              }
             }
           }
-        }
-      } catch (_) {}
-    }
+        } catch (_) {}
+      }
 
-    if (!isNativeCap()) {
-      try {
-        const fallbackPiper = lang === "en" ? "en_US-lessac-medium" : "fr_FR-siwis-medium";
-        return await synthesizeViaPiper(cleanText, fallbackPiper);
-      } catch (_) {}
-    }
+      if (!isNativeCap()) {
+        try {
+          const fallbackPiper = lang === "en" ? "en_US-lessac-medium" : "fr_FR-siwis-medium";
+          const res = await synthesizeViaPiper(cleanText, fallbackPiper);
+          if (res && res.blob) storeCachedAudio(cacheKey, res.blob, res.engine, res.engineLabel);
+          return res;
+        } catch (_) {}
+      }
 
-    return null;
+      return null;
+    })();
+
+    inFlightSynth.set(cacheKey, work);
+    try {
+      const entry = await work;
+      if (!entry || !entry.blob) return null;
+      return {
+        url: URL.createObjectURL(entry.blob),
+        engine: entry.engine,
+        engineLabel: entry.engineLabel
+      };
+    } finally {
+      inFlightSynth.delete(cacheKey);
+    }
   }
 
   function getOrPrefetchChunk(index, lang, voiceId, sessionId) {
@@ -495,16 +654,17 @@ window.DFWolAudio = (function () {
     const voiceId = getSelectedVoice(lang);
     highlightParagraph(chunk);
 
-    if (voiceId !== "system" && index + 1 < state.ttsChunks.length) {
-      getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
-    }
-
     state.isPlaying = true;
+    state.isBuffering = voiceId !== "system";
     state.activeEngine = voiceId === "system" ? (isNativeCap() ? "native-tts" : "web-tts") : "neural-mp3";
     updatePlayerUI();
 
     const audioRes = voiceId !== "system" ? await getOrPrefetchChunk(index, lang, voiceId, mySession) : null;
-    if (state.ttsStopRequested || mySession !== state.ttsSessionId) return;
+    if (state.ttsStopRequested || mySession !== state.ttsSessionId) {
+      state.isBuffering = false;
+      return;
+    }
+    state.isBuffering = false;
 
     if (audioRes && audioRes.url) {
       stopMp3Internal();
@@ -518,16 +678,42 @@ window.DFWolAudio = (function () {
         await htmlAudio.play();
         state.isPlaying = true;
         updatePlayerUI();
+
+        if (audioRes.engine === "neural-mp3") {
+          if (index + 1 < state.ttsChunks.length) getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
+          if (index + 2 < state.ttsChunks.length) getOrPrefetchChunk(index + 2, lang, voiceId, mySession);
+        } else if (audioRes.engine === "piper-wasm" && index + 1 < state.ttsChunks.length) {
+          setTimeout(() => {
+            if (!state.ttsStopRequested && mySession === state.ttsSessionId) {
+              getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
+            }
+          }, 120);
+        }
         return;
       } catch (_) {
         stopMp3Internal();
       }
     }
 
+    updatePlayerUI();
     const ok = await speakChunkViaSystemTts(chunk.text, lang, mySession);
     if (!state.ttsStopRequested && mySession === state.ttsSessionId && ok) {
       speakChunkAt(index + 1);
     }
+  }
+
+  function prewarmText(paragraphsOrText, lang = "fr") {
+    const voiceId = getSelectedVoice(lang);
+    if (!voiceId || voiceId === "system" || voiceId.startsWith("piper:")) return;
+    const hasEdge = Boolean(getNeuralPlugin()?.synthesizeEdgeNeural || getTtsEndpointBase());
+    if (!hasEdge) return;
+    const chunks = buildTtsChunks(paragraphsOrText, lang);
+    if (!chunks.length) return;
+    synthesizeChunkAudio(chunks[0].text, lang, voiceId)
+      .then((res) => {
+        if (res && res.url) revokeBlobUrl(res.url);
+      })
+      .catch(() => {});
   }
 
   function updateMediaSession(track) {
@@ -836,12 +1022,14 @@ window.DFWolAudio = (function () {
 
     if (cur) {
       if (titleEl) titleEl.textContent = cur.title || "Audio";
-      if (subEl) subEl.textContent = cur.subtitle || engineNames[state.activeEngine] || "Lecture";
+      if (subEl) {
+        subEl.textContent = state.isBuffering && isTtsMode() ? "⏳ Préparation vocale…" : cur.subtitle || engineNames[state.activeEngine] || "Lecture";
+      }
     }
 
     if (playBtn) playBtn.innerHTML = state.isPlaying ? SVG_PAUSE : SVG_PLAY;
     if (rateBtn) rateBtn.textContent = `${state.rate}×`;
-    if (badgeEl) badgeEl.textContent = engineNames[state.activeEngine] || "Prêt";
+    if (badgeEl) badgeEl.textContent = state.isBuffering && isTtsMode() ? "⏳" : engineNames[state.activeEngine] || "Prêt";
     if (queueCountEl) queueCountEl.textContent = String(state.queue.length);
 
     if (state.activeEngine === "mp3") {
@@ -1026,6 +1214,9 @@ window.DFWolAudio = (function () {
     stopAll,
     populateVoiceSelector,
     sanitizeTextForTts,
+    formatScripturesForSpeech,
+    buildTtsChunks,
+    prewarmText,
     getSkipRefsEnabled,
     setSkipRefsEnabled,
     getSelectedVoice,
