@@ -16,8 +16,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet" />
 
   <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
-  <link rel="apple-touch-icon" href="assets/icon.svg" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -53,17 +55,16 @@
 
     <!-- En-tête Officiel JW.org à 2 niveaux -->
     <header class="jw-site-header">
-      <!-- Niveau 1 : Bandeau Supérieur Blanc (Logo carré #4a6da7 + OmniBar + Utilitaires) -->
+      <!-- Niveau 1 : Bandeau Supérieur Blanc (Logo DFWol + OmniBar + Utilitaires) -->
       <div class="jw-header-top-wrap">
         <div class="jw-header-top">
           <div class="jw-brand-area">
-            <button type="button" class="jw-logo-square" data-goto-tab="dashboard" title="Accueil DFWol">
-              <span class="jw-logo-top">DF</span>
-              <span class="jw-logo-bottom">WOL</span>
+            <button type="button" class="dfwol-brand-logo" data-goto-tab="dashboard" title="Accueil DFWol">
+              <img src="assets/icon-192.png" alt="Logo DFWol" class="dfwol-brand-img" />
             </button>
             <div class="jw-brand-titles">
-              <div class="jw-site-name">DFWol<span class="jw-site-tld">.org</span></div>
-              <div class="jw-site-tagline">JW.org × Bibliothèque en ligne</div>
+              <div class="jw-site-name">DFWol</div>
+              <div class="jw-site-tagline">Studio Biblique • JW × WOL</div>
             </div>
           </div>
 
@@ -651,7 +652,7 @@
               <button type="button" id="reader-btn-mp3" class="btn-primary btn-sm hidden">🎧 Audio MP3</button>
               <button type="button" id="reader-btn-tts" class="btn-secondary btn-sm">🗣️ Écouter (TTS)</button>
               <button type="button" id="reader-btn-to-notes" class="btn-secondary btn-sm">📝 Annoter</button>
-              <a id="reader-btn-external" href="https://wol.jw.org" target="_blank" rel="noopener" class="btn-ghost btn-xs">Site officiel ↗</a>
+              <a id="reader-btn-external" href="https://wol.jw.org" data-allow-external="1" target="_blank" rel="noopener" class="btn-ghost btn-xs">Site officiel ↗</a>
             </div>
           </div>
 
@@ -898,6 +899,7 @@
     </div>
 
     <div class="audio-bar-extra">
+      <select id="audio-voice-select" class="audio-voice-select" aria-label="Voix TTS" title="Choisir la voix neuronale"></select>
       <button type="button" id="audio-btn-rate" class="btn-ghost btn-xs" title="Vitesse">1×</button>
       <button type="button" id="audio-btn-queue" class="btn-secondary btn-xs" title="File d'attente">
         📋 <span id="audio-queue-count">0</span>

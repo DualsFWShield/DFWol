@@ -1,6 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <!-- Carré plat officiel couleur JW.org (#4a6da7) -->
-  <rect width="512" height="512" fill="#4a6da7"/>
-  <text x="256" y="246" text-anchor="middle" fill="#ffffff" font-family="Noto Sans, Arial, sans-serif" font-weight="700" font-size="168" letter-spacing="6">DF</text>
-  <text x="256" y="378" text-anchor="middle" fill="#e8effb" font-family="Noto Sans, Arial, sans-serif" font-weight="700" font-size="108" letter-spacing="12">WOL</text>
+  <defs>
+    <radialGradient id="dfwolBg" cx="50%" cy="46%" r="68%">
+      <stop offset="0%" stop-color="#22488a"/>
+      <stop offset="65%" stop-color="#142d58"/>
+      <stop offset="100%" stop-color="#102547"/>
+    </radialGradient>
+    <linearGradient id="goldStar" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fae093"/>
+      <stop offset="55%" stop-color="#efc058"/>
+      <stop offset="100%" stop-color="#d89626"/>
+    </linearGradient>
+    <linearGradient id="pageWhite" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d8e6fb"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#dfwolBg)"/>
+  <!-- Halo arc -->
+  <path d="M158 216 A98 98 0 0 1 354 216" stroke="url(#goldStar)" stroke-width="5" stroke-linecap="round" opacity="0.92"/>
+  <!-- 4-pointed guiding compass star -->
+  <path d="M256 144 L270 184 L310 198 L270 212 L256 252 L242 212 L202 198 L242 184 Z" fill="url(#goldStar)"/>
+  <!-- Open book outer pages -->
+  <path d="M154 228 C184 232 222 250 250 284 L250 356 C218 332 182 322 154 320 Z" fill="#9fbbe6" opacity="0.55"/>
+  <path d="M358 228 C328 232 290 250 262 284 L262 356 C294 332 330 322 358 320 Z" fill="#9fbbe6" opacity="0.55"/>
+  <!-- Open book main pages -->
+  <path d="M174 214 C206 218 236 238 252 268 L252 346 C228 322 198 310 174 308 Z" fill="url(#pageWhite)"/>
+  <path d="M338 214 C306 218 276 238 260 268 L260 346 C284 322 314 310 338 308 Z" fill="url(#pageWhite)"/>
+  <!-- Gold bookmark ribbon -->
+  <path d="M244 344 L268 344 L268 380 L256 370 L244 380 Z" fill="url(#goldStar)"/>
 </svg>

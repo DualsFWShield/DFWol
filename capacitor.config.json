@@ -5,11 +5,7 @@
   "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https",
-    "allowNavigation": [
-      "wol.jw.org",
-      "*.jw.org",
-      "*.jw-cdn.org"
-    ]
+    "allowNavigation": []
   },
   "plugins": {
     "CapacitorHttp": {

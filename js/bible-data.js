@@ -293,10 +293,39 @@ window.DFWolBible = (function () {
 
   /**
    * Analyse une URL WOL ou JW.org pour déterminer comment l'ouvrir directement dans l'application
+   * sans jamais sortir vers Chrome / JW.org ni ouvrir DFWol dans lui-même.
    */
-  function parseWolUrlTarget(rawUrl) {
+  function parseWolUrlTarget(rawUrl, defaultLang = "fr") {
     if (!rawUrl) return { type: "external", url: rawUrl };
-    const urlStr = String(rawUrl).trim();
+    let urlStr = String(rawUrl).trim();
+
+    if (urlStr.startsWith("#")) {
+      return { type: "anchor", hash: urlStr };
+    }
+
+    // Convertir toute URL relative WOL (/fr/wol/..., /en/wol/..., /wol/...) en URL absolue wol.jw.org
+    if (/^\/(?:fr|en)\/wol\/|^\/wol\//i.test(urlStr)) {
+      urlStr = `https://wol.jw.org${urlStr}`;
+    }
+
+    // Convertir URL webpubvid://?pub=jwb-130&track=5 en lank vidéo Mediator
+    if (urlStr.startsWith("webpubvid://")) {
+      const mPub = urlStr.match(/[?&]pub=([^&#]+)/i);
+      const mTrk = urlStr.match(/[?&]track=(\d+)/i);
+      const mLank = urlStr.match(/[?&]lank=([^&#]+)/i);
+      if (mLank) {
+        return { type: "video", lank: decodeURIComponent(mLank[1]), lang: /wtlocale=E|langwritten=E/i.test(urlStr) ? "en" : defaultLang };
+      }
+      if (mPub) {
+        const pub = decodeURIComponent(mPub[1]);
+        const trk = mTrk ? `_${mTrk[1]}` : "";
+        return {
+          type: "video",
+          lank: `pub-${pub}${trk}_VIDEO`,
+          lang: /langwritten=E|wtlocale=E/i.test(urlStr) ? "en" : defaultLang
+        };
+      }
+    }
 
     if (urlStr.startsWith("jwlibrary://")) {
       const mBib = urlStr.match(/bible=(\d{2})(\d{3})(\d{3})/);
@@ -306,6 +335,19 @@ window.DFWolBible = (function () {
           bookNum: parseInt(mBib[1], 10),
           chapter: parseInt(mBib[2], 10),
           verse: parseInt(mBib[3], 10)
+        };
+      }
+    }
+
+    // Liens Vidéos JW.org finder (lank=pub-xxx_VIDEO ou content=video)
+    const mLank = urlStr.match(/jw\.org\/(?:finder|open)\?.*?[?&]lank=([^&#]+)/i);
+    if (mLank) {
+      const lankVal = decodeURIComponent(mLank[1]);
+      if (lankVal.endsWith("_VIDEO") || /content=video/i.test(urlStr)) {
+        return {
+          type: "video",
+          lank: lankVal,
+          lang: /wtlocale=E/i.test(urlStr) ? "en" : /wtlocale=F/i.test(urlStr) ? "fr" : defaultLang
         };
       }
     }
@@ -333,20 +375,25 @@ window.DFWolBible = (function () {
       };
     }
 
+    // Notes de bas de page WOL (/wol/fn/)
+    if (/\/wol\/fn\//i.test(urlStr)) {
+      const fullWol = urlStr.startsWith("http") ? urlStr : `https://wol.jw.org${urlStr}`;
+      return { type: "footnote", url: fullWol };
+    }
+
     // Liens /wol/bc/ ou /wol/dx/ (citations versets dans WOL)
     if (/\/wol\/(?:bc|dx)\//i.test(urlStr)) {
       const fullWol = urlStr.startsWith("http") ? urlStr : `https://wol.jw.org${urlStr}`;
       return { type: "wol-bible-redirect", url: fullWol };
     }
 
-    // Liens Articles WOL (/wol/d/, /wol/pc/, /wol/finder, /wol/l/, /wol/meetings/, /wol/dt/)
-    if (/wol\.jw\.org/i.test(urlStr) || urlStr.startsWith("/fr/wol/") || urlStr.startsWith("/en/wol/")) {
-      const fullWol = urlStr.startsWith("http") ? urlStr : `https://wol.jw.org${urlStr}`;
-      return { type: "article", url: fullWol };
+    // Toute URL WOL (/wol/d/, /wol/pc/, /wol/finder, /wol/l/, /wol/lv/, /wol/meetings/, /wol/library/, /wol/publication/, /wol/dt/, /wol/h/, /wol/s/)
+    if (/^https?:\/\/wol\.jw\.org\//i.test(urlStr)) {
+      return { type: "article", url: urlStr };
     }
 
-    // Liens jw.org/open?docid=...
-    const mOpenDoc = urlStr.match(/jw\.org\/open\?.*?docid=(\d+)/i);
+    // Liens jw.org/open?... ou jw.org/finder?... avec docid ou pub
+    const mOpenDoc = urlStr.match(/jw\.org\/(?:open|finder)\?.*?docid=(\d+)/i);
     if (mOpenDoc) {
       const langParam = /wtlocale=E/i.test(urlStr) ? "E" : "F";
       if (/content=video/i.test(urlStr)) {
@@ -356,6 +403,16 @@ window.DFWolBible = (function () {
         type: "article",
         docId: mOpenDoc[1],
         url: `https://wol.jw.org/wol/finder?wtlocale=${langParam}&docid=${mOpenDoc[1]}`
+      };
+    }
+
+    const mOpenPub = urlStr.match(/jw\.org\/(?:open|finder)\?.*?pub=([^&#]+)/i);
+    if (mOpenPub) {
+      const langParam = /wtlocale=E/i.test(urlStr) ? "E" : "F";
+      const issueM = urlStr.match(/[?&]issue=([^&#]+)/i);
+      return {
+        type: "article",
+        url: `https://wol.jw.org/wol/finder?wtlocale=${langParam}&pub=${encodeURIComponent(decodeURIComponent(mOpenPub[1]))}${issueM ? `&issue=${issueM[1]}` : ""}`
       };
     }
 

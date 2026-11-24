@@ -42,6 +42,24 @@ window.DFWolNet = (function () {
     } catch (_) {}
   }
 
+  const ALLOWED_WOL_HOSTS = new Set([
+    "wol.jw.org",
+    "www.jw.org",
+    "jw.org",
+    "b.jw-cdn.org",
+    "cfp2.jw-cdn.org",
+    "cms-imgp.jw-cdn.org"
+  ]);
+
+  function isNativeCapacitor() {
+    return Boolean(
+      typeof window !== "undefined" &&
+        window.Capacitor &&
+        typeof window.Capacitor.isNativePlatform === "function" &&
+        window.Capacitor.isNativePlatform()
+    );
+  }
+
   function isLocalhost() {
     return (
       typeof window !== "undefined" &&
@@ -51,7 +69,17 @@ window.DFWolNet = (function () {
   }
 
   function isLocalServerProxyAvailable() {
-    return isLocalhost();
+    // Dans l'app Capacitor Android, window.location est https://localhost mais il n'y a pas de serveur /api/proxy !
+    return !isNativeCapacitor() && isLocalhost();
+  }
+
+  function isAllowedUpstreamUrl(url) {
+    try {
+      const u = new URL(String(url || "").trim());
+      return u.protocol === "https:" && ALLOWED_WOL_HOSTS.has(u.hostname.toLowerCase());
+    } catch (_) {
+      return false;
+    }
   }
 
   function isProxyInCooldown(name) {
@@ -70,13 +98,19 @@ window.DFWolNet = (function () {
 
   /**
    * Valide qu'une réponse HTML provient bien de WOL.jw.org et non d'une page 429/401/Cloudflare
+   * ni de l'application DFWol elle-même (anti auto-emboîtement).
    */
   function isValidWolHtml(html) {
-    if (!html || typeof html !== "string" || html.length < 300) return false;
-    if (/Just a moment\.\.\.|Attention Required! \| Cloudflare|Too Many Requests|Error 1015|Access Denied/i.test(html.slice(0, 2000))) {
+    if (!html || typeof html !== "string" || html.length < 250) return false;
+    if (/id=["']app-shell["']|id=["']omnibar-form["']|js\/reader-engine\.js|DFWol — JW\.org/i.test(html.slice(0, 8000))) {
       return false;
     }
-    return /id=["']article["']|class=["'][^"']*(?:bodyTxt|themeScrp|scalableui|ref-rsg|results)|wol\.jw\.org/i.test(html);
+    if (/Just a moment\.\.\.|Attention Required! \| Cloudflare|Too Many Requests|Error 1015|Access Denied/i.test(html.slice(0, 2500))) {
+      return false;
+    }
+    return /<article[^>]+id=["']article["']|class=["'][^"']*(?:scalableui|bodyTxt|themeScrp|ref-rsg|todayItems|navCard|results)|id=["']materialNav["']|span[^>]+id=["']v\d+-\d+-/i.test(
+      html
+    );
   }
 
   function setLruCache(key, value) {
@@ -304,6 +338,9 @@ window.DFWolNet = (function () {
   async function fetchWolHtml(targetUrl, options = {}) {
     const cleanUrl = String(targetUrl || "").trim();
     if (!cleanUrl) throw new Error("URL cible manquante");
+    if (!isAllowedUpstreamUrl(cleanUrl)) {
+      throw new Error("URL non autorisée pour le lecteur interne (hôte externe ou local).");
+    }
 
     if (!options.skipCache && htmlMemoryCache.has(cleanUrl)) {
       const cached = htmlMemoryCache.get(cleanUrl);
@@ -321,7 +358,9 @@ window.DFWolNet = (function () {
         const res = await capHttp.get({
           url: cleanUrl,
           headers: {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DFWolStudio/3.0",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"
           }
         });
         if (res && res.status >= 200 && res.status < 400 && res.data) {
@@ -427,7 +466,9 @@ window.DFWolNet = (function () {
     getLangLetter,
     getCustomProxyBase,
     setCustomProxyBase,
+    isNativeCapacitor,
     isLocalServerProxyAvailable,
+    isAllowedUpstreamUrl,
     getJwSearchToken,
     jwSearch,
     mediatorGet,

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Halo arc -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M34,46 A20,20 0 0,1 74,46" />
+    <!-- Compass star -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 L57.5,38 L67,41.5 L57.5,45 L54,55 L50.5,45 L41,41.5 L50.5,38 Z" />
+    <!-- Open book left page -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,48 C40,49 48,54 52.5,61.5 L52.5,77 C46.5,71.5 39.5,68.8 33,68.2 Z" />
+    <!-- Open book right page -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M75,48 C68,49 60,54 55.5,61.5 L55.5,77 C61.5,71.5 68.5,68.8 75,68.2 Z" />
+    <!-- Bookmark ribbon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51.5,75.5 L56.5,75.5 L56.5,83 L54,80.5 L51.5,83 Z" />
+</vector>

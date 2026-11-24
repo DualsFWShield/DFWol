@@ -1,29 +1,91 @@
 /* ==========================================================================
-   DFWol Studio — Lecteur Audio Persistant & File d'Attente Unifiée
-   (MP3 Officiels PubMedia/Mediator + Synthèse Vocale TTS découpée)
+   DFWol Studio — Lecteur Audio Persistant, File d'Attente & TTS Neuronal
+   Cascade ultra-naturelle :
+   1) MP3 Officiels JW (PubMedia / Mediator)
+   2) Edge Neural TTS v2 (Vivienne / Rémy / Emma / Andrew IA) via Plugin Natif
+      Capacitor OU serveur local / Cloudflare Worker (+ pré-chargement fluide)
+   3) Piper VITS ONNX Neural WASM (@diffusionstudio/vits-web) sur Web/PWA
+   4) Android Native Google Neural TTS (hors-ligne) / Web Speech API (secours)
    ========================================================================== */
 
 window.DFWolAudio = (function () {
   "use strict";
 
+  const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v1";
   const htmlAudio = new Audio();
-  htmlAudio.preload = "metadata";
+  htmlAudio.preload = "auto";
+
+  const VOICE_CATALOG = {
+    fr: [
+      { id: "fr-FR-VivienneMultilingualNeural", label: "✨ Vivienne (IA Naturelle)" },
+      { id: "fr-FR-RemyMultilingualNeural", label: "✨ Rémy (IA Naturelle)" },
+      { id: "fr-FR-DeniseNeural", label: "✨ Denise (IA Claire)" },
+      { id: "fr-FR-HenriNeural", label: "✨ Henri (IA Posée)" },
+      { id: "piper:fr_FR-siwis-medium", label: "🧠 Siwis (IA Hors-ligne)" },
+      { id: "system", label: "📱 Voix Système / Native" }
+    ],
+    en: [
+      { id: "en-US-EmmaMultilingualNeural", label: "✨ Emma (Neural AI)" },
+      { id: "en-US-AndrewMultilingualNeural", label: "✨ Andrew (Neural AI)" },
+      { id: "en-US-AriaNeural", label: "✨ Aria (Neural Clear)" },
+      { id: "en-GB-SoniaNeural", label: "✨ Sonia (Neural UK)" },
+      { id: "piper:en_US-lessac-medium", label: "🧠 Lessac (Offline AI)" },
+      { id: "system", label: "📱 System / Native Voice" }
+    ]
+  };
+
+  let voicePrefs = {
+    fr: "fr-FR-VivienneMultilingualNeural",
+    en: "en-US-EmmaMultilingualNeural"
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(VOICE_PREF_KEY) || "null");
+    if (saved && saved.fr) voicePrefs.fr = saved.fr;
+    if (saved && saved.en) voicePrefs.en = saved.en;
+  } catch (_) {}
 
   const state = {
     queue: [],
     currentIndex: -1,
-    activeEngine: null, // 'mp3' | 'tts' | null
+    activeEngine: null, // 'mp3' | 'neural-mp3' | 'piper-wasm' | 'native-tts' | 'web-tts' | null
     isPlaying: false,
     rate: 1.0,
     ttsChunks: [],
     ttsChunkIndex: 0,
-    ttsActiveUtterance: null,
+    ttsSessionId: 0,
     ttsCurrentTrack: null,
     ttsStopRequested: false,
-    onProgressCallback: null
+    activeBlobUrl: null
   };
 
+  const prefetchedChunks = new Map(); // cache key -> Promise<{ url, mime, engineLabel }>
+  let nativeListenersBound = false;
+  let activeNativeUtteranceResolve = null;
+  let activeNativeUtteranceId = null;
+  let piperModulePromise = null;
   let uiBound = false;
+
+  function isNativeCap() {
+    return Boolean(window.DFWolNet && window.DFWolNet.isNativeCapacitor && window.DFWolNet.isNativeCapacitor());
+  }
+
+  function getNeuralPlugin() {
+    return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NeuralTts;
+  }
+
+  function getSelectedVoice(lang = "fr") {
+    const l = lang === "en" ? "en" : "fr";
+    return voicePrefs[l] || VOICE_CATALOG[l][0].id;
+  }
+
+  function setSelectedVoice(lang, voiceId) {
+    const l = lang === "en" ? "en" : "fr";
+    voicePrefs[l] = voiceId;
+    try {
+      localStorage.setItem(VOICE_PREF_KEY, JSON.stringify(voicePrefs));
+    } catch (_) {}
+  }
 
   function formatTime(sec) {
     if (!isFinite(sec) || sec < 0) return "0:00";
@@ -32,9 +94,26 @@ window.DFWolAudio = (function () {
     return `${m}:${String(s).padStart(2, "0")}`;
   }
 
+  function revokeBlobUrl(url) {
+    if (url && String(url).startsWith("blob:")) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    }
+  }
+
+  function clearPrefetchCache() {
+    prefetchedChunks.forEach((p) => {
+      Promise.resolve(p)
+        .then((res) => res && res.url && revokeBlobUrl(res.url))
+        .catch(() => {});
+    });
+    prefetchedChunks.clear();
+  }
+
   /**
-   * Découpe un texte ou un tableau de paragraphes en segments <= 240 caractères
-   * pour éviter la coupure Chrome Web Speech API sur les longs textes.
+   * Découpe en segments naturels (~480 caractères max aux frontières de phrases)
+   * pour une prosodie fluide avec Edge Neural TTS / Piper / Native TTS.
    */
   function buildTtsChunks(paragraphsOrText) {
     const chunks = [];
@@ -49,11 +128,10 @@ window.DFWolAudio = (function () {
     rawParas.forEach((p) => {
       const clean = (p.text || "").replace(/\s+/g, " ").trim();
       if (!clean) return;
-      // Découpe par phrases
       const sentences = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
       let buffer = "";
       sentences.forEach((sent) => {
-        if ((buffer + sent).length > 240 && buffer.trim()) {
+        if ((buffer + sent).length > 460 && buffer.trim()) {
           chunks.push({ text: buffer.trim(), pid: p.pid, pIdx: p.pIdx });
           buffer = sent;
         } else {
@@ -68,24 +146,236 @@ window.DFWolAudio = (function () {
     return chunks;
   }
 
-  function pickVoice(lang = "fr") {
+  function base64ToBlobUrl(b64, mimeType = "audio/mpeg") {
+    const bin = atob(b64);
+    const len = bin.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mimeType });
+    return URL.createObjectURL(blob);
+  }
+
+  function getTtsEndpointBase() {
+    if (window.DFWolNet && window.DFWolNet.isLocalServerProxyAvailable()) {
+      return "/api/tts";
+    }
+    const custom = window.DFWolNet ? window.DFWolNet.getCustomProxyBase() : "";
+    if (custom) {
+      try {
+        const u = new URL(custom);
+        return `${u.origin}/api/tts`;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  async function synthesizeViaPiper(text, piperVoiceId) {
+    if (!piperModulePromise) {
+      window.DFWolToast && window.DFWolToast("Chargement du modèle vocal IA local (première utilisation)…");
+      piperModulePromise = import("https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web/+esm");
+    }
+    const tts = await piperModulePromise;
+    const wavBlob = await tts.predict({ text, voiceId: piperVoiceId });
+    return {
+      url: URL.createObjectURL(wavBlob),
+      engine: "piper-wasm",
+      engineLabel: "IA Locale"
+    };
+  }
+
+  /**
+   * Prépare un segment TTS audio (MP3 Edge Neural ou WAV Piper) si disponible.
+   * Retourne null si l'audio neuronal réseau/WASM est indisponible (basculera sur Natif Android / Web Speech).
+   */
+  async function synthesizeChunkAudio(text, lang, voiceId) {
+    const cleanText = String(text || "").trim();
+    if (!cleanText || voiceId === "system") return null;
+
+    // 1. Si voix Piper sélectionnée explicitement
+    if (voiceId.startsWith("piper:")) {
+      const pid = voiceId.slice(6);
+      return await synthesizeViaPiper(cleanText, pid);
+    }
+
+    // 2. Sur Capacitor Natif -> Plugin Java Edge Neural TTS v2 (100% autonome, zéro CORS)
+    const plugin = getNeuralPlugin();
+    if (plugin && typeof plugin.synthesizeEdgeNeural === "function") {
+      try {
+        const res = await plugin.synthesizeEdgeNeural({
+          text: cleanText,
+          voice: voiceId,
+          lang,
+          rate: 1.0 // La vitesse est pilotée par htmlAudio.playbackRate en temps réel !
+        });
+        if (res && res.audioBase64) {
+          return {
+            url: base64ToBlobUrl(res.audioBase64, res.mimeType || "audio/mpeg"),
+            engine: "neural-mp3",
+            engineLabel: "IA Neuronale"
+          };
+        }
+      } catch (_) {}
+    }
+
+    // 3. Sur Serveur Local ou Cloudflare Worker -> GET /api/tts
+    const endpoint = getTtsEndpointBase();
+    if (endpoint) {
+      try {
+        const url = `${endpoint}?text=${encodeURIComponent(cleanText)}&voice=${encodeURIComponent(voiceId)}&lang=${encodeURIComponent(lang)}&rate=1`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const ct = resp.headers.get("Content-Type") || "";
+          if (ct.includes("audio")) {
+            const blob = await resp.blob();
+            if (blob.size > 100) {
+              return {
+                url: URL.createObjectURL(blob),
+                engine: "neural-mp3",
+                engineLabel: "IA Neuronale"
+              };
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 4. Sur Web pur (ex: GitHub Pages sans Worker) -> Piper VITS ONNX WebAssembly
+    if (!isNativeCap()) {
+      try {
+        const fallbackPiper = lang === "en" ? "en_US-lessac-medium" : "fr_FR-siwis-medium";
+        return await synthesizeViaPiper(cleanText, fallbackPiper);
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  function getOrPrefetchChunk(index, lang, voiceId, sessionId) {
+    if (index < 0 || index >= state.ttsChunks.length) return null;
+    const key = `${sessionId}:${index}:${voiceId}`;
+    if (prefetchedChunks.has(key)) {
+      return prefetchedChunks.get(key);
+    }
+    const chunk = state.ttsChunks[index];
+    const p = synthesizeChunkAudio(chunk.text, lang, voiceId).catch(() => null);
+    prefetchedChunks.set(key, p);
+    return p;
+  }
+
+  function bindNativeTtsListeners() {
+    if (nativeListenersBound) return;
+    const plugin = getNeuralPlugin();
+    if (!plugin || typeof plugin.addListener !== "function") return;
+    nativeListenersBound = true;
+
+    plugin.addListener("nativeTtsDone", (data) => {
+      if (data && data.utteranceId === activeNativeUtteranceId && activeNativeUtteranceResolve) {
+        const fn = activeNativeUtteranceResolve;
+        activeNativeUtteranceResolve = null;
+        fn("done");
+      }
+    });
+    plugin.addListener("nativeTtsError", (data) => {
+      if (data && data.utteranceId === activeNativeUtteranceId && activeNativeUtteranceResolve) {
+        const fn = activeNativeUtteranceResolve;
+        activeNativeUtteranceResolve = null;
+        fn("error");
+      }
+    });
+  }
+
+  function pickWebVoice(lang = "fr") {
     if (!("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices() || [];
     const prefix = lang === "en" ? "en" : "fr";
-    const preferred =
-      voices.find((v) => v.lang.toLowerCase().startsWith(prefix) && /natural|google|microsoft|thomas|hortense|denise|aria|jenny/i.test(v.name)) ||
-      voices.find((v) => v.lang.toLowerCase().startsWith(prefix));
-    return preferred || null;
+    return (
+      voices.find((v) => v.lang.toLowerCase().startsWith(prefix) && /online|natural|neural|google|vivienne|denise|henri|emma|aria/i.test(v.name)) ||
+      voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ||
+      null
+    );
+  }
+
+  function speakChunkViaSystemTts(text, lang, sessionId) {
+    return new Promise(async (resolve) => {
+      // A) Plugin Natif Android TextToSpeech (Google Neural)
+      const plugin = getNeuralPlugin();
+      if (plugin && typeof plugin.speakNative === "function") {
+        bindNativeTtsListeners();
+        const uttId = `dfwol-${sessionId}-${Date.now()}`;
+        activeNativeUtteranceId = uttId;
+        state.activeEngine = "native-tts";
+        state.isPlaying = true;
+        updatePlayerUI();
+
+        const donePromise = new Promise((resDone) => {
+          activeNativeUtteranceResolve = resDone;
+          setTimeout(() => {
+            if (activeNativeUtteranceId === uttId && activeNativeUtteranceResolve) {
+              activeNativeUtteranceResolve = null;
+              resDone("timeout");
+            }
+          }, 45000);
+        });
+
+        try {
+          await plugin.speakNative({
+            text,
+            lang,
+            rate: state.rate,
+            utteranceId: uttId
+          });
+          await donePromise;
+          resolve(true);
+          return;
+        } catch (_) {
+          activeNativeUtteranceResolve = null;
+        }
+      }
+
+      // B) Web Speech API (Navigateur Desktop / iOS Safari)
+      if ("speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+          const utt = new SpeechSynthesisUtterance(text);
+          utt.lang = lang === "en" ? "en-US" : "fr-FR";
+          const voice = pickWebVoice(lang);
+          if (voice) utt.voice = voice;
+          utt.rate = state.rate;
+          state.activeEngine = "web-tts";
+          state.isPlaying = true;
+          updatePlayerUI();
+
+          utt.onend = () => resolve(true);
+          utt.onerror = () => resolve(true);
+          window.speechSynthesis.speak(utt);
+          return;
+        } catch (_) {}
+      }
+
+      window.DFWolToast && window.DFWolToast("Aucune synthèse vocale disponible sur cet appareil.");
+      resolve(false);
+    });
   }
 
   function stopTtsInternal() {
     state.ttsStopRequested = true;
+    state.ttsSessionId++;
+    activeNativeUtteranceId = null;
+    if (activeNativeUtteranceResolve) {
+      const fn = activeNativeUtteranceResolve;
+      activeNativeUtteranceResolve = null;
+      fn("stopped");
+    }
+    const plugin = getNeuralPlugin();
+    if (plugin && typeof plugin.stopNative === "function") {
+      plugin.stopNative().catch(() => {});
+    }
     if ("speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
       } catch (_) {}
     }
-    state.ttsActiveUtterance = null;
+    clearPrefetchCache();
     clearArticleHighlights();
   }
 
@@ -95,6 +385,10 @@ window.DFWolAudio = (function () {
       htmlAudio.removeAttribute("src");
       htmlAudio.load();
     } catch (_) {}
+    if (state.activeBlobUrl) {
+      revokeBlobUrl(state.activeBlobUrl);
+      state.activeBlobUrl = null;
+    }
   }
 
   function stopAll() {
@@ -119,7 +413,8 @@ window.DFWolAudio = (function () {
     }
   }
 
-  function speakChunkAt(index) {
+  async function speakChunkAt(index) {
+    const mySession = state.ttsSessionId;
     if (state.ttsStopRequested) return;
     if (index >= state.ttsChunks.length) {
       state.isPlaying = false;
@@ -130,36 +425,45 @@ window.DFWolAudio = (function () {
 
     state.ttsChunkIndex = index;
     const chunk = state.ttsChunks[index];
+    const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || "fr";
+    const voiceId = getSelectedVoice(lang);
     highlightParagraph(chunk);
 
-    if (!("speechSynthesis" in window)) {
-      window.DFWolToast && window.DFWolToast("Synthèse vocale non supportée sur ce navigateur.");
-      return;
+    // Pré-chargement parallèle du segment suivant dès que possible
+    if (voiceId !== "system" && index + 1 < state.ttsChunks.length) {
+      getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
     }
 
-    const utt = new SpeechSynthesisUtterance(chunk.text);
-    const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || "fr";
-    utt.lang = lang === "en" ? "en-US" : "fr-FR";
-    const voice = pickVoice(lang);
-    if (voice) utt.voice = voice;
-    utt.rate = state.rate;
-
-    utt.onend = () => {
-      if (!state.ttsStopRequested && state.activeEngine === "tts") {
-        speakChunkAt(index + 1);
-      }
-    };
-    utt.onerror = () => {
-      if (!state.ttsStopRequested && state.activeEngine === "tts") {
-        speakChunkAt(index + 1);
-      }
-    };
-
-    state.ttsActiveUtterance = utt;
     state.isPlaying = true;
-    state.activeEngine = "tts";
-    window.speechSynthesis.speak(utt);
+    state.activeEngine = voiceId === "system" ? (isNativeCap() ? "native-tts" : "web-tts") : "neural-mp3";
     updatePlayerUI();
+
+    const audioRes = voiceId !== "system" ? await getOrPrefetchChunk(index, lang, voiceId, mySession) : null;
+    if (state.ttsStopRequested || mySession !== state.ttsSessionId) return;
+
+    if (audioRes && audioRes.url) {
+      stopMp3Internal();
+      state.activeBlobUrl = audioRes.url;
+      state.activeEngine = audioRes.engine || "neural-mp3";
+      htmlAudio.src = audioRes.url;
+      htmlAudio.playbackRate = state.rate;
+      updatePlayerUI();
+
+      try {
+        await htmlAudio.play();
+        state.isPlaying = true;
+        updatePlayerUI();
+        return; // La suite sera déclenchée par l'événement 'ended' de htmlAudio
+      } catch (_) {
+        stopMp3Internal();
+      }
+    }
+
+    // Secours : Synthèse Native Android (Google Neural) ou Web Speech API
+    const ok = await speakChunkViaSystemTts(chunk.text, lang, mySession);
+    if (!state.ttsStopRequested && mySession === state.ttsSessionId && ok) {
+      speakChunkAt(index + 1);
+    }
   }
 
   function updateMediaSession(track) {
@@ -178,9 +482,17 @@ window.DFWolAudio = (function () {
     }
   }
 
-  /**
-   * Joue immédiatement un item résolu (MP3 ou TTS)
-   */
+  function populateVoiceSelector(lang = "fr") {
+    const sel = document.getElementById("audio-voice-select");
+    if (!sel) return;
+    const l = lang === "en" ? "en" : "fr";
+    const list = VOICE_CATALOG[l];
+    const current = getSelectedVoice(l);
+    sel.innerHTML = list
+      .map((v) => `<option value="${v.id}" ${v.id === current ? "selected" : ""}>${v.label}</option>`)
+      .join("");
+  }
+
   async function startTrackItem(item) {
     stopTtsInternal();
     stopMp3Internal();
@@ -192,10 +504,11 @@ window.DFWolAudio = (function () {
       return;
     }
 
+    const lang = item.lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
+    populateVoiceSelector(lang);
     showAudioBar();
     setBarStatus(item.title, `${item.subtitle || "Chargement…"}`);
 
-    // Résolution automatique si l'item vient du Guide de recherche / d'une liste d'articles
     let resolvedUrl = item.audioUrl || null;
     let resolvedText = item.text || item.paragraphs || null;
     let resolvedTitle = item.title || "Lecture Audio";
@@ -209,8 +522,8 @@ window.DFWolAudio = (function () {
         resolvedSubtitle = parsed.citation || resolvedSubtitle;
         resolvedText = parsed.paragraphs.length ? parsed.paragraphs : parsed.plainText;
 
-        if (parsed.docId && window.DFWolNet) {
-          const mp3Track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, item.lang || "fr");
+        if (parsed.docId && window.DFWolNet && item.mode !== "tts") {
+          const mp3Track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, lang);
           if (mp3Track && mp3Track.file && mp3Track.file.url) {
             resolvedUrl = mp3Track.file.url;
           }
@@ -222,16 +535,17 @@ window.DFWolAudio = (function () {
       }
     } else if (!resolvedUrl && item.docId && window.DFWolNet && item.mode !== "tts") {
       try {
-        const mp3Track = await window.DFWolNet.getArticleAudioByDocId(item.docId, item.lang || "fr");
+        const mp3Track = await window.DFWolNet.getArticleAudioByDocId(item.docId, lang);
         if (mp3Track && mp3Track.file && mp3Track.file.url) {
           resolvedUrl = mp3Track.file.url;
         }
       } catch (_) {}
     }
 
-    // Mémoriser les données résolues sur l'item
     item.title = resolvedTitle;
     item.subtitle = resolvedSubtitle;
+    item.lang = lang;
+
     if (resolvedUrl && item.mode !== "tts") {
       item.audioUrl = resolvedUrl;
       state.activeEngine = "mp3";
@@ -248,7 +562,6 @@ window.DFWolAudio = (function () {
       return;
     }
 
-    // Fallback ou mode explicite TTS
     if (resolvedText) {
       state.ttsStopRequested = false;
       state.ttsCurrentTrack = item;
@@ -257,7 +570,7 @@ window.DFWolAudio = (function () {
         playNextInQueue();
         return;
       }
-      state.activeEngine = "tts";
+      state.ttsSessionId++;
       speakChunkAt(0);
       updateMediaSession(item);
       updatePlayerUI();
@@ -309,6 +622,15 @@ window.DFWolAudio = (function () {
       htmlAudio.currentTime = 0;
       return;
     }
+    if (isTtsMode() && state.ttsChunkIndex > 0) {
+      const targetIdx = state.ttsChunkIndex - 1;
+      stopTtsInternal();
+      stopMp3Internal();
+      state.ttsStopRequested = false;
+      state.ttsSessionId++;
+      speakChunkAt(targetIdx);
+      return;
+    }
     if (state.currentIndex > 0) {
       state.currentIndex--;
       renderQueueList();
@@ -316,26 +638,52 @@ window.DFWolAudio = (function () {
     }
   }
 
+  function isTtsMode() {
+    return (
+      state.activeEngine === "neural-mp3" ||
+      state.activeEngine === "piper-wasm" ||
+      state.activeEngine === "native-tts" ||
+      state.activeEngine === "web-tts"
+    );
+  }
+
   function togglePlayPause() {
-    if (state.activeEngine === "mp3") {
+    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
       if (htmlAudio.paused) {
-        htmlAudio.play().then(() => {
-          state.isPlaying = true;
-          updatePlayerUI();
-        }).catch(() => {});
+        if (isTtsMode() && !htmlAudio.src) {
+          state.ttsStopRequested = false;
+          speakChunkAt(state.ttsChunkIndex);
+          return;
+        }
+        htmlAudio
+          .play()
+          .then(() => {
+            state.isPlaying = true;
+            updatePlayerUI();
+          })
+          .catch(() => {});
       } else {
         htmlAudio.pause();
         state.isPlaying = false;
         updatePlayerUI();
       }
-    } else if (state.activeEngine === "tts") {
+    } else if (isTtsMode()) {
       if (state.isPlaying) {
         state.ttsStopRequested = true;
-        window.speechSynthesis.cancel();
+        state.ttsSessionId++;
+        const plugin = getNeuralPlugin();
+        if (plugin && typeof plugin.stopNative === "function") plugin.stopNative().catch(() => {});
+        if ("speechSynthesis" in window) {
+          try {
+            window.speechSynthesis.cancel();
+          } catch (_) {}
+        }
+        htmlAudio.pause();
         state.isPlaying = false;
         updatePlayerUI();
       } else {
         state.ttsStopRequested = false;
+        state.ttsSessionId++;
         speakChunkAt(state.ttsChunkIndex);
       }
     } else if (state.queue.length > 0) {
@@ -347,33 +695,32 @@ window.DFWolAudio = (function () {
   function seekDelta(seconds) {
     if (state.activeEngine === "mp3") {
       htmlAudio.currentTime = Math.max(0, Math.min(htmlAudio.duration || 0, htmlAudio.currentTime + seconds));
-    } else if (state.activeEngine === "tts") {
+    } else if (isTtsMode()) {
       const step = seconds > 0 ? 1 : -1;
       const targetIdx = Math.max(0, Math.min(state.ttsChunks.length - 1, state.ttsChunkIndex + step));
       stopTtsInternal();
+      stopMp3Internal();
       state.ttsStopRequested = false;
+      state.ttsSessionId++;
       speakChunkAt(targetIdx);
     }
   }
 
   function cycleRate() {
-    const rates = [0.85, 1.0, 1.25, 1.5, 1.75, 2.0];
+    const rates = [0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0];
     const idx = rates.indexOf(state.rate);
     state.rate = rates[(idx + 1) % rates.length];
-    if (state.activeEngine === "mp3") {
+    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
       htmlAudio.playbackRate = state.rate;
-    } else if (state.activeEngine === "tts" && state.isPlaying) {
+    } else if ((state.activeEngine === "native-tts" || state.activeEngine === "web-tts") && state.isPlaying) {
       const curIdx = state.ttsChunkIndex;
       stopTtsInternal();
       state.ttsStopRequested = false;
+      state.ttsSessionId++;
       speakChunkAt(curIdx);
     }
     updatePlayerUI();
   }
-
-  // ==========================================================================
-  // Liaison UI Barre Audio Persistante
-  // ==========================================================================
 
   function showAudioBar() {
     const bar = document.getElementById("global-audio-bar");
@@ -410,16 +757,22 @@ window.DFWolAudio = (function () {
     const progressEl = document.getElementById("audio-progress-range");
     const timeEl = document.getElementById("audio-time-label");
 
+    const engineNames = {
+      mp3: "MP3 Officiel",
+      "neural-mp3": "IA Neuronale",
+      "piper-wasm": "IA Locale",
+      "native-tts": "TTS Natif",
+      "web-tts": "TTS Web"
+    };
+
     if (cur) {
       if (titleEl) titleEl.textContent = cur.title || "Audio";
-      if (subEl) subEl.textContent = cur.subtitle || (state.activeEngine === "mp3" ? "MP3 Officiel JW" : "Voix TTS");
+      if (subEl) subEl.textContent = cur.subtitle || engineNames[state.activeEngine] || "Lecture";
     }
 
     if (playBtn) playBtn.textContent = state.isPlaying ? "⏸" : "▶";
     if (rateBtn) rateBtn.textContent = `${state.rate}×`;
-    if (badgeEl) {
-      badgeEl.textContent = state.activeEngine === "mp3" ? "MP3 Officiel" : state.activeEngine === "tts" ? "Voix TTS" : "Prêt";
-    }
+    if (badgeEl) badgeEl.textContent = engineNames[state.activeEngine] || "Prêt";
     if (queueCountEl) queueCountEl.textContent = String(state.queue.length);
 
     if (state.activeEngine === "mp3") {
@@ -430,7 +783,7 @@ window.DFWolAudio = (function () {
         progressEl.value = dur > 0 ? Math.floor(curT) : 0;
       }
       if (timeEl) timeEl.textContent = `${formatTime(curT)} / ${formatTime(dur)}`;
-    } else if (state.activeEngine === "tts") {
+    } else if (isTtsMode()) {
       const total = Math.max(1, state.ttsChunks.length);
       if (progressEl) {
         progressEl.max = total - 1;
@@ -458,7 +811,7 @@ window.DFWolAudio = (function () {
               <span>${active && state.isPlaying ? "🔊" : `${idx + 1}.`}</span>
               <div>
                 <strong>${window.DFWolSearch ? window.DFWolSearch.escapeHtml(item.title) : item.title}</strong>
-                <small>${window.DFWolSearch ? window.DFWolSearch.escapeHtml(item.subtitle || (item.audioUrl ? "MP3" : "Auto MP3/TTS")) : ""}</small>
+                <small>${window.DFWolSearch ? window.DFWolSearch.escapeHtml(item.subtitle || (item.audioUrl ? "MP3" : "Voix IA / MP3")) : ""}</small>
               </div>
             </button>
             <button type="button" class="btn-icon-xs" data-q-del="${idx}" title="Retirer">✕</button>
@@ -472,20 +825,43 @@ window.DFWolAudio = (function () {
     if (uiBound) return;
     uiBound = true;
 
+    populateVoiceSelector(window.DFWolGetLang ? window.DFWolGetLang() : "fr");
+
     htmlAudio.addEventListener("timeupdate", () => {
       if (state.activeEngine === "mp3") updatePlayerUI();
     });
     htmlAudio.addEventListener("ended", () => {
-      playNextInQueue();
+      if (state.activeEngine === "mp3") {
+        playNextInQueue();
+      } else if (isTtsMode() && !state.ttsStopRequested) {
+        speakChunkAt(state.ttsChunkIndex + 1);
+      }
     });
     htmlAudio.addEventListener("error", () => {
-      // Si le MP3 échoue et qu'on a le texte, basculer sur TTS
-      const cur = state.queue[state.currentIndex];
-      if (cur && (cur.text || cur.paragraphs)) {
-        cur.mode = "tts";
-        startTrackItem(cur);
-      } else {
-        playNextInQueue();
+      if (state.activeEngine === "mp3") {
+        const cur = state.queue[state.currentIndex];
+        if (cur && (cur.text || cur.paragraphs)) {
+          cur.mode = "tts";
+          startTrackItem(cur);
+        } else {
+          playNextInQueue();
+        }
+      } else if (isTtsMode() && !state.ttsStopRequested) {
+        speakChunkAt(state.ttsChunkIndex + 1);
+      }
+    });
+
+    document.getElementById("audio-voice-select")?.addEventListener("change", (e) => {
+      const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
+      setSelectedVoice(lang, e.target.value);
+      clearPrefetchCache();
+      if (isTtsMode() && state.isPlaying) {
+        const curIdx = state.ttsChunkIndex;
+        stopTtsInternal();
+        stopMp3Internal();
+        state.ttsStopRequested = false;
+        state.ttsSessionId++;
+        speakChunkAt(curIdx);
       }
     });
 
@@ -514,9 +890,11 @@ window.DFWolAudio = (function () {
       const val = Number(e.target.value);
       if (state.activeEngine === "mp3") {
         htmlAudio.currentTime = val;
-      } else if (state.activeEngine === "tts") {
+      } else if (isTtsMode()) {
         stopTtsInternal();
+        stopMp3Internal();
         state.ttsStopRequested = false;
+        state.ttsSessionId++;
         speakChunkAt(val);
       }
     });
@@ -553,6 +931,7 @@ window.DFWolAudio = (function () {
     addToQueue,
     togglePlayPause,
     stopAll,
+    populateVoiceSelector,
     getState: () => state
   };
 })();

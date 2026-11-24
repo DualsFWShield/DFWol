@@ -39,16 +39,43 @@ if (!fs.existsSync(ANDROID_MAIN)) {
   process.exit(1);
 }
 
-// 1. Copier les sources Java et ressources XML/Drawable
-copyRecursiveSync(NATIVE_JAVA, path.join(ANDROID_MAIN, "java"));
-copyRecursiveSync(path.join(NATIVE_ANDROID, "res"), path.join(ANDROID_MAIN, "res"));
-
-const targetWidgetXml = path.join(ANDROID_MAIN, "res", "xml", "daily_text_widget_info.xml");
-if (!fs.existsSync(targetWidgetXml)) {
-  console.error("[DFWol] Erreur : échec de copie vers", targetWidgetXml);
-  process.exit(1);
+// 1. Nettoyer d'abord les icônes par défaut de Capacitor (ic_launcher*) pour éviter tout conflit AAPT2 (.webp/.png)
+const androidResDir = path.join(ANDROID_MAIN, "res");
+if (fs.existsSync(androidResDir)) {
+  fs.readdirSync(androidResDir).forEach((sub) => {
+    if (sub.startsWith("mipmap-") || sub.startsWith("drawable")) {
+      const subPath = path.join(androidResDir, sub);
+      if (fs.statSync(subPath).isDirectory()) {
+        fs.readdirSync(subPath).forEach((file) => {
+          if (file.startsWith("ic_launcher")) {
+            fs.rmSync(path.join(subPath, file), { force: true });
+          }
+        });
+      }
+    }
+  });
 }
-console.log("[DFWol] Sources Java et ressources du Widget copiées et vérifiées dans android/app/src/main.");
+
+// 2. Copier les sources Java et ressources XML/Drawable/Mipmap
+copyRecursiveSync(NATIVE_JAVA, path.join(ANDROID_MAIN, "java"));
+copyRecursiveSync(path.join(NATIVE_ANDROID, "res"), androidResDir);
+
+const requiredPaths = [
+  path.join(ANDROID_MAIN, "res", "xml", "daily_text_widget_info.xml"),
+  path.join(ANDROID_MAIN, "res", "drawable", "ic_launcher_monochrome.xml"),
+  path.join(ANDROID_MAIN, "res", "drawable", "ic_stat_dfwol.xml"),
+  path.join(ANDROID_MAIN, "res", "mipmap-anydpi-v26", "ic_launcher.xml"),
+  path.join(ANDROID_MAIN, "res", "mipmap-xxxhdpi", "ic_launcher.png"),
+  path.join(ANDROID_MAIN, "res", "mipmap-xxxhdpi", "ic_launcher_foreground.png"),
+  path.join(ANDROID_MAIN, "java", "org", "dfwol", "app", "NeuralTtsPlugin.java")
+];
+for (const reqPath of requiredPaths) {
+  if (!fs.existsSync(reqPath)) {
+    console.error("[DFWol] Erreur : ressource/source critique introuvable après copie ->", reqPath);
+    process.exit(1);
+  }
+}
+console.log("[DFWol] Sources Java (Widget + NeuralTTS) et icônes/ressources copiées et vérifiées.");
 
 // 2. Injecter le <receiver> du widget dans AndroidManifest.xml
 const manifestPath = path.join(ANDROID_MAIN, "AndroidManifest.xml");

@@ -43,6 +43,8 @@
   };
 
   let deferredPwaPrompt = null;
+  const tabHistory = ["dashboard"];
+  let lastBackExitTime = 0;
 
   function loadPersistedState() {
     try {
@@ -104,10 +106,23 @@
   };
 
   // ==========================================================================
-  // Navigation & Thème
+  // Navigation, Historique & Bouton Retour Natif Android
   // ==========================================================================
 
-  function switchTab(tabId) {
+  function switchTab(tabId, options = {}) {
+    if (!tabId) return;
+    if (!options.fromBack && state.activeTab !== tabId) {
+      if (tabHistory[tabHistory.length - 1] !== tabId) {
+        tabHistory.push(tabId);
+        if (tabHistory.length > 25) tabHistory.shift();
+      }
+      if (!options.skipPushState && window.history && typeof window.history.pushState === "function") {
+        try {
+          window.history.pushState({ tab: tabId }, "");
+        } catch (_) {}
+      }
+    }
+
     state.activeTab = tabId;
     document.querySelectorAll(".jw-nav-item").forEach((b) => b.classList.toggle("active", b.getAttribute("data-tab") === tabId));
     document.querySelectorAll(".mbn-item").forEach((b) => b.classList.toggle("active", b.getAttribute("data-tab") === tabId));
@@ -123,6 +138,117 @@
       const ch = Number(document.getElementById("picker-chapter")?.value || 83);
       window.DFWolReader.openBibleChapter(bNum, ch, 18, state.lang);
     }
+  }
+
+  function handleBackNavigation() {
+    const lightbox = document.getElementById("image-lightbox-modal");
+    if (lightbox && !lightbox.classList.contains("hidden")) {
+      lightbox.classList.add("hidden");
+      return;
+    }
+
+    const peek = document.getElementById("scripture-peek-modal");
+    if (peek && !peek.classList.contains("hidden")) {
+      peek.classList.add("hidden");
+      return;
+    }
+
+    const cmdPal = document.getElementById("cmd-palette-backdrop");
+    if (cmdPal && !cmdPal.classList.contains("hidden")) {
+      cmdPal.classList.add("hidden");
+      return;
+    }
+
+    const qDrawer = document.getElementById("audio-queue-drawer");
+    if (qDrawer && !qDrawer.classList.contains("hidden")) {
+      qDrawer.classList.add("hidden");
+      return;
+    }
+
+    const vidStage = document.getElementById("video-player-stage");
+    if (state.activeTab === "videos" && vidStage && !vidStage.classList.contains("hidden")) {
+      const vidEl = document.getElementById("dfwol-video-el");
+      if (vidEl && !vidEl.paused) vidEl.pause();
+      vidStage.classList.add("hidden");
+      return;
+    }
+
+    if (state.activeTab === "reader" && window.DFWolReader && window.DFWolReader.canGoBack()) {
+      if (window.DFWolReader.goBack()) return;
+    }
+
+    if (tabHistory.length > 1) {
+      tabHistory.pop();
+      const prevTab = tabHistory[tabHistory.length - 1] || "dashboard";
+      switchTab(prevTab, { fromBack: true });
+      return;
+    }
+
+    if (state.activeTab !== "dashboard") {
+      switchTab("dashboard", { fromBack: true });
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastBackExitTime < 2200) {
+      const appPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+      if (appPlugin && typeof appPlugin.exitApp === "function") {
+        appPlugin.exitApp();
+      }
+    } else {
+      lastBackExitTime = now;
+      showToast(state.lang === "en" ? "Press Back again to exit DFWol." : "Appuyez encore une fois sur Retour pour quitter DFWol.");
+    }
+  }
+
+  function setupNativeBackAndLinkGuard() {
+    // 1. Bouton Retour Natif Android (@capacitor/app) + Historique Web (popstate)
+    const appPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (appPlugin && typeof appPlugin.addListener === "function") {
+      appPlugin.addListener("backButton", () => {
+        handleBackNavigation();
+      });
+    }
+
+    window.addEventListener("popstate", () => {
+      handleBackNavigation();
+    });
+
+    // 2. Garde global phase capture : empêche TOUTE sortie involontaire vers jw.org / wol.jw.org ou auto-ouverture
+    document.addEventListener(
+      "click",
+      async (e) => {
+        const a = e.target.closest("a[href]");
+        if (!a) return;
+        const href = a.getAttribute("href") || "";
+        if (!href || href.startsWith("javascript:")) return;
+
+        // Liens locaux légitimes (ex: widget ./index.html)
+        if (href.startsWith("./") || href.startsWith("index.html")) return;
+
+        if (a.getAttribute("data-allow-external") === "1") {
+          const capBrowser = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Browser;
+          if (window.DFWolNet && window.DFWolNet.isNativeCapacitor() && capBrowser && typeof capBrowser.open === "function") {
+            e.preventDefault();
+            e.stopPropagation();
+            capBrowser.open({ url: href }).catch(() => {});
+          }
+          return;
+        }
+
+        if (/^(?:https?:\/\/)?(?:[^/]*\.)?(?:jw\.org|wol\.jw\.org)|^\/(?:fr|en)?\/?wol\//i.test(href)) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (window.DFWolReader && typeof window.DFWolReader.routeHrefInApp === "function") {
+            const ok = await window.DFWolReader.routeHrefInApp(href, a, state.lang);
+            if (!ok) {
+              showToast("Lien JW/WOL conservé dans DFWol.");
+            }
+          }
+        }
+      },
+      true
+    );
   }
 
   function applyTheme(theme) {
@@ -151,6 +277,9 @@
     updateSearchExplainer();
     renderBibleBooksGrid("all");
     renderNotesList();
+    if (window.DFWolAudio && window.DFWolAudio.populateVoiceSelector) {
+      window.DFWolAudio.populateVoiceSelector(lang);
+    }
 
     if (state.activeTab === "videos" && window.DFWolVideo) {
       state.videosLoadedLang = lang;
@@ -1447,6 +1576,7 @@
     renderNotesList();
     setupOmnibar();
     setupCommandPalette();
+    setupNativeBackAndLinkGuard();
     bindAllEvents();
     updateGlobalLanguage(state.lang);
     checkStartupUrlParams();
