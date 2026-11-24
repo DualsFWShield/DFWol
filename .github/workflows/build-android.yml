@@ -66,6 +66,7 @@ jobs:
           else
             export ANDROID_VERSION_NAME="${ANDROID_VERSION_NAME#v}"
           fi
+          echo "RELEASE_TAG=v${ANDROID_VERSION_NAME}" >> "$GITHUB_ENV"
           node scripts/sync-www.js
           npx cap add android
           npx cap sync android
@@ -120,10 +121,12 @@ jobs:
           name: dfwol-android-apk-aab
           path: dist-android/*
 
-      - name: Publish GitHub Release on Tag v*
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish GitHub Release (APK & AAB)
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: DFWol ${{ env.RELEASE_TAG }}
+          make_latest: true
           files: |
             dist-android/DFWol-debug.apk
             dist-android/DFWol-release.apk
