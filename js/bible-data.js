@@ -148,6 +148,82 @@ window.DFWolBible = (function () {
     return WOL_LANG_CONFIG[langCode === "en" ? "en" : "fr"];
   }
 
+  function parseVerseSpec(specStr) {
+    if (specStr === null || specStr === undefined) return [];
+    if (Array.isArray(specStr)) {
+      const set = new Set();
+      specStr.forEach((n) => {
+        const v = parseInt(n, 10);
+        if (v >= 1 && v <= 176) set.add(v);
+      });
+      return Array.from(set).sort((a, b) => a - b);
+    }
+    if (typeof specStr === "number") {
+      return specStr >= 1 && specStr <= 176 ? [Math.floor(specStr)] : [];
+    }
+    const clean = String(specStr).replace(/[–—]/g, "-").trim();
+    if (!clean) return [];
+    const set = new Set();
+    const parts = clean.split(/[;,]+/);
+    parts.forEach((part) => {
+      const p = part.trim();
+      if (!p) return;
+      const rangeM = p.match(/^(\d{1,3})\s*-\s*(\d{1,3})$/);
+      if (rangeM) {
+        const a = Math.max(1, parseInt(rangeM[1], 10));
+        const b = Math.min(176, parseInt(rangeM[2], 10));
+        if (b >= a && b - a <= 176) {
+          for (let v = a; v <= b; v++) set.add(v);
+        } else if (a >= 1 && a <= 176) {
+          set.add(a);
+        }
+        return;
+      }
+      const singleM = p.match(/^(\d{1,3})$/);
+      if (singleM) {
+        const v = parseInt(singleM[1], 10);
+        if (v >= 1 && v <= 176) set.add(v);
+      }
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }
+
+  function formatVerseSpec(versesArr, compact = false) {
+    const sorted = parseVerseSpec(versesArr);
+    if (sorted.length === 0) return "";
+    const ranges = [];
+    let start = sorted[0];
+    let prev = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === prev + 1) {
+        prev = sorted[i];
+      } else {
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        start = sorted[i];
+        prev = sorted[i];
+      }
+    }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+    return ranges.join(compact ? "," : ", ");
+  }
+
+  function parseDataBibleAttr(attr) {
+    const parts = String(attr || "").trim().split(":");
+    const bookNum = parseInt(parts[0], 10) || 1;
+    const chapter = parseInt(parts[1], 10) || 1;
+    const specRaw = parts.slice(2).join(":") || "1";
+    const verses = parseVerseSpec(specRaw);
+    const vList = verses.length ? verses : [1];
+    return {
+      bookNum,
+      chapter,
+      verseStart: vList[0],
+      verseEnd: vList.length > 1 ? vList[vList.length - 1] : null,
+      verses: vList,
+      verseSpec: formatVerseSpec(vList, true)
+    };
+  }
+
   function formatJwBibleCode(bookNum, chapter, verse) {
     const bb = String(bookNum).padStart(2, "0");
     const ccc = String(chapter || 1).padStart(3, "0");
@@ -155,42 +231,70 @@ window.DFWolBible = (function () {
     return `${bb}${ccc}${vvv}`;
   }
 
-  function buildScriptureLinks(bookNum, chapter, verseStart, verseEnd, langCode = "fr") {
+  function buildScriptureLinks(bookNum, chapter, verseStartOrList, verseEnd = null, langCode = "fr", chapterEnd = null) {
     const cfg = getLangConfig(langCode);
     const book = getBookByNumber(bookNum);
     const ch = Math.max(1, Math.min(book.chapters, Number(chapter) || 1));
-    const vStart = verseStart ? Math.max(1, Number(verseStart)) : null;
-    const vEnd = verseEnd && Number(verseEnd) > vStart ? Number(verseEnd) : null;
+    const chEnd = chapterEnd && Number(chapterEnd) > ch ? Math.min(book.chapters, Number(chapterEnd)) : null;
+
+    let verses = [];
+    if (Array.isArray(verseStartOrList)) {
+      verses = parseVerseSpec(verseStartOrList);
+    } else if (typeof verseStartOrList === "string" && /[-–—,;:]/.test(verseStartOrList)) {
+      verses = parseVerseSpec(verseStartOrList);
+    } else if (verseStartOrList !== null && verseStartOrList !== undefined && verseStartOrList !== "") {
+      const vs = Math.max(1, Math.min(176, Number(verseStartOrList) || 1));
+      const ve = verseEnd && Number(verseEnd) > vs && Number(verseEnd) <= 176 ? Number(verseEnd) : null;
+      if (ve) {
+        for (let v = vs; v <= ve; v++) verses.push(v);
+      } else {
+        verses.push(vs);
+      }
+    }
+
+    const vStart = verses.length ? verses[0] : null;
+    const vEnd = verses.length > 1 ? verses[verses.length - 1] : null;
+    const verseSpec = verses.length ? formatVerseSpec(verses, false) : "";
+    const verseSpecCompact = verses.length ? formatVerseSpec(verses, true) : "";
 
     let wolBibleUrl = `https://wol.jw.org/${cfg.code}/wol/b/${cfg.r}/${cfg.lp}/nwtsty/${book.num}/${ch}`;
     if (vStart) {
       wolBibleUrl += `#study=discover&v=${book.num}:${ch}:${vStart}`;
-      if (vEnd) {
+      if (vEnd && vEnd > vStart) {
         wolBibleUrl += `-${book.num}:${ch}:${vEnd}`;
       }
     }
 
     const startCode = formatJwBibleCode(book.num, ch, vStart || 1);
-    const jwCode = vEnd ? `${startCode}-${formatJwBibleCode(book.num, ch, vEnd)}` : startCode;
+    const endCode = vEnd && vEnd > vStart ? formatJwBibleCode(book.num, ch, vEnd) : chEnd ? formatJwBibleCode(book.num, chEnd, 1) : null;
+    const jwCode = endCode ? `${startCode}-${endCode}` : startCode;
     const jwFinderUrl = `https://www.jw.org/finder?wtlocale=${cfg.wtlocale}&prefer=lang&bible=${jwCode}&pub=nwtsty`;
     const jwLibraryUrl = `jwlibrary:///finder?bible=${jwCode}`;
 
     const displayBookName = getBookDisplayName(book, cfg.code);
-    const refQuery = vStart ? `"${displayBookName} ${ch}:${vStart}"` : `"${displayBookName} ${ch}"`;
+    const refQuery = vStart ? `"${displayBookName} ${ch}:${verseSpec || vStart}"` : `"${displayBookName} ${ch}"`;
     const wolCommentarySearchUrl = `https://wol.jw.org/${cfg.code}/wol/s/${cfg.r}/${cfg.lp}?q=${encodeURIComponent(refQuery)}&p=par&r=occ`;
 
     let label = `${displayBookName} ${ch}`;
-    if (vStart) {
-      label += `:${vStart}`;
-      if (vEnd) label += `-${vEnd}`;
+    if (chEnd) {
+      label += `-${chEnd}`;
+    } else if (vStart) {
+      label += `:${verseSpec}`;
     }
+
+    const dataAttr = `${book.num}:${ch}:${verseSpecCompact || vStart || 1}`;
 
     return {
       book,
       bookNum: book.num,
       chapter: ch,
+      chapterEnd: chEnd,
       verseStart: vStart,
       verseEnd: vEnd,
+      verses,
+      verseSpec,
+      verseSpecCompact,
+      dataAttr,
       label,
       jwCode,
       wolBibleUrl,
@@ -200,7 +304,53 @@ window.DFWolBible = (function () {
     };
   }
 
-  const SCRIPTURE_REGEX = /\b((?:[123]\s*)?[A-Za-zÀ-ÖØ-öø-ÿ]{2,18}\.?)\s+(\d{1,3})(?:\s*[:.,]\s*(\d{1,3})(?:\s*[-–—]\s*(\d{1,3})|\s*,\s*(\d{1,3}))?)?\b/g;
+  const AMBIGUOUS_SHORT_ALIASES = new Set(["le", "la", "es", "is", "ne", "lu", "am", "co", "he", "so", "ha", "ca", "no"]);
+  const MULTIWORD_BOOKS_PATTERN = "Chant\\s+de\\s+Salomon|Cantique\\s+des\\s+cantiques|Song\\s+of\\s+Solomon";
+  const SCRIPTURE_REGEX = new RegExp(
+    `\\b(${MULTIWORD_BOOKS_PATTERN}|(?:[123]\\s*)?[A-Za-zÀ-ÖØ-öø-ÿ]{2,18}\\.?)\\s+(\\d{1,3})(?:(\\s*:\\s*)(\\d{1,3}(?:\\s*(?:[-–—]\\s*\\d{1,3}|,\\s*\\d{1,3}(?:\\s*[-–—]\\s*\\d{1,3})?))*)?|\\s*[-–—]\\s*(\\d{1,3}))?\\b`,
+    "gi"
+  );
+
+  function extractMatchedBookRef(match, langCode = "fr") {
+    const rawBook = match[1];
+    const cleanAlias = normalizeStr(rawBook);
+    const book = findBookByName(rawBook);
+    if (!book) return null;
+
+    const firstNum = parseInt(match[2], 10);
+    const hasColon = Boolean(match[3]);
+    const rawVerseSpec = match[4] ? match[4].trim() : null;
+    const rawRangeEndAfterDash = match[5] ? parseInt(match[5], 10) : null;
+
+    if (AMBIGUOUS_SHORT_ALIASES.has(cleanAlias)) {
+      const hasDot = rawBook.includes(".");
+      const startsUpper = /^[A-ZÀ-Ö]/.test(rawBook.trim());
+      if (!hasColon && !hasDot && !startsUpper) {
+        return null;
+      }
+    }
+
+    if (book.chapters === 1 && !hasColon) {
+      const spec = rawRangeEndAfterDash ? `${firstNum}-${rawRangeEndAfterDash}` : `${firstNum}`;
+      const verses = parseVerseSpec(spec);
+      if (!verses.length) return null;
+      return buildScriptureLinks(book.num, 1, verses, null, langCode);
+    }
+
+    if (firstNum < 1 || firstNum > book.chapters) return null;
+
+    if (hasColon && rawVerseSpec) {
+      const verses = parseVerseSpec(rawVerseSpec);
+      if (!verses.length) return null;
+      return buildScriptureLinks(book.num, firstNum, verses, null, langCode);
+    }
+
+    if (rawRangeEndAfterDash && rawRangeEndAfterDash > firstNum && rawRangeEndAfterDash <= book.chapters) {
+      return buildScriptureLinks(book.num, firstNum, null, null, langCode, rawRangeEndAfterDash);
+    }
+
+    return buildScriptureLinks(book.num, firstNum, null, null, langCode);
+  }
 
   function parseScriptureReferences(text, langCode = "fr") {
     if (!text || typeof text !== "string") return [];
@@ -210,22 +360,13 @@ window.DFWolBible = (function () {
     let match;
     SCRIPTURE_REGEX.lastIndex = 0;
     while ((match = SCRIPTURE_REGEX.exec(text)) !== null) {
-      const rawBook = match[1];
-      const rawChapter = parseInt(match[2], 10);
-      const rawVerseStart = match[3] ? parseInt(match[3], 10) : null;
-      const rawVerseRangeEnd = match[4] ? parseInt(match[4], 10) : null;
-      const rawVerseCommaEnd = match[5] ? parseInt(match[5], 10) : null;
+      const linkData = extractMatchedBookRef(match, langCode);
+      if (!linkData) continue;
 
-      const book = findBookByName(rawBook);
-      if (!book) continue;
-      if (rawChapter < 1 || rawChapter > book.chapters) continue;
-
-      const vEnd = rawVerseRangeEnd || rawVerseCommaEnd || null;
-      const key = `${book.num}:${rawChapter}:${rawVerseStart || 0}-${vEnd || 0}`;
+      const key = `${linkData.bookNum}:${linkData.chapter}:${linkData.chapterEnd || 0}:${linkData.verseSpecCompact || 0}`;
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
 
-      const linkData = buildScriptureLinks(book.num, rawChapter, rawVerseStart, vEnd, langCode);
       linkData.rawMatch = match[0];
       results.push(linkData);
     }
@@ -235,7 +376,7 @@ window.DFWolBible = (function () {
 
   /**
    * Analyseur avancé pour l'extraction en lot du Guide de recherche :
-   * Supporte les plages de versets (ex: Ps 83:15-18 -> versets 15,16,17,18) et listes séparées par virgules (ex: Rom 12:1, 2).
+   * Supporte les plages de versets (ex: Ps 83:15-18 -> versets 15,16,17,18) et listes séparées par virgules (ex: Rom 12:1, 2, 9-12).
    */
   function parseRangeOrBatchReferences(text, langCode = "fr", expandRanges = true) {
     const baseRefs = parseScriptureReferences(text, langCode);
@@ -245,21 +386,14 @@ window.DFWolBible = (function () {
     const seen = new Set();
 
     baseRefs.forEach((ref) => {
-      if (ref.verseStart && ref.verseEnd && ref.verseEnd > ref.verseStart && ref.verseEnd - ref.verseStart <= 25) {
-        for (let v = ref.verseStart; v <= ref.verseEnd; v++) {
-          const k = `${ref.bookNum}:${ref.chapter}:${v}`;
-          if (!seen.has(k)) {
-            seen.add(k);
-            expanded.push(buildScriptureLinks(ref.bookNum, ref.chapter, v, null, langCode));
-          }
-        }
-      } else {
-        const k = `${ref.bookNum}:${ref.chapter}:${ref.verseStart || 1}`;
+      const vList = Array.isArray(ref.verses) && ref.verses.length ? ref.verses.slice(0, 30) : [ref.verseStart || 1];
+      vList.forEach((v) => {
+        const k = `${ref.bookNum}:${ref.chapter}:${v}`;
         if (!seen.has(k)) {
           seen.add(k);
-          expanded.push(buildScriptureLinks(ref.bookNum, ref.chapter, ref.verseStart || 1, null, langCode));
+          expanded.push(buildScriptureLinks(ref.bookNum, ref.chapter, v, null, langCode));
         }
-      }
+      });
     });
 
     return expanded;
@@ -269,7 +403,7 @@ window.DFWolBible = (function () {
     const trimmed = (input || "").trim();
     if (!trimmed || /[&|!*?#"]/.test(trimmed)) return null;
     const refs = parseScriptureReferences(trimmed, langCode);
-    if (refs.length === 1 && trimmed.length <= 36) {
+    if (refs.length === 1 && trimmed.length <= 55) {
       return refs[0];
     }
     return null;
@@ -278,21 +412,16 @@ window.DFWolBible = (function () {
   function expandScriptureRefFull(rawRef, langCode = "fr") {
     const input = String(rawRef || "").trim();
     if (!input) return input;
-    return input.replace(SCRIPTURE_REGEX, (fullMatch, rawBook, rawCh, rawV1, rawV2, rawV3) => {
-      const book = findBookByName(rawBook);
-      const ch = parseInt(rawCh, 10);
-      if (!book || ch < 1 || ch > book.chapters) return fullMatch;
-      let fullName = getBookDisplayName(book, langCode);
-      if (book.num === 19) {
-        fullName = langCode === "en" ? "Psalm" : "Psaume";
+    SCRIPTURE_REGEX.lastIndex = 0;
+    return input.replace(SCRIPTURE_REGEX, (...args) => {
+      const fullMatch = args[0];
+      const links = extractMatchedBookRef(args, langCode);
+      if (!links) return fullMatch;
+      let label = links.label;
+      if (links.book.num === 19) {
+        label = label.replace(/^(Psaumes|Psalms)/, langCode === "en" ? "Psalm" : "Psaume");
       }
-      let res = `${fullName} ${ch}`;
-      if (rawV1) {
-        res += `:${rawV1}`;
-        if (rawV2) res += `-${rawV2}`;
-        else if (rawV3) res += `, ${rawV3}`;
-      }
-      return res;
+      return label;
     });
   }
 
@@ -301,14 +430,12 @@ window.DFWolBible = (function () {
    */
   function linkifyScripturesInHtml(escapedHtmlText, langCode = "fr") {
     if (!escapedHtmlText) return "";
-    return escapedHtmlText.replace(SCRIPTURE_REGEX, (fullMatch, rawBook, rawCh, rawV1, rawV2, rawV3) => {
-      const book = findBookByName(rawBook);
-      const ch = parseInt(rawCh, 10);
-      if (!book || ch < 1 || ch > book.chapters) return fullMatch;
-      const v1 = rawV1 ? parseInt(rawV1, 10) : 1;
-      const vEnd = rawV2 ? parseInt(rawV2, 10) : rawV3 ? parseInt(rawV3, 10) : null;
-      const links = buildScriptureLinks(book.num, ch, v1, vEnd, langCode);
-      return `<a href="${links.wolBibleUrl}" data-inapp-bible="${book.num}:${ch}:${v1}" class="inline-scripture-link" title="Lire ${links.label} dans DFWol">📖 ${fullMatch}</a>`;
+    SCRIPTURE_REGEX.lastIndex = 0;
+    return escapedHtmlText.replace(SCRIPTURE_REGEX, (...args) => {
+      const fullMatch = args[0];
+      const links = extractMatchedBookRef(args, langCode);
+      if (!links) return fullMatch;
+      return `<a href="${links.wolBibleUrl}" data-inapp-bible="${links.dataAttr}" class="inline-scripture-link" title="Lire ${links.label} dans DFWol">📖 ${fullMatch}</a>`;
     });
   }
 
@@ -348,15 +475,32 @@ window.DFWolBible = (function () {
       }
     }
 
+    const buildBibleResult = (bookNum, chapter, v1, v2, lang) => {
+      const vs = Math.max(1, v1 || 1);
+      const ve = v2 && v2 > vs ? v2 : null;
+      const verseSpec = ve ? `${vs}-${ve}` : `${vs}`;
+      const verses = parseVerseSpec(verseSpec);
+      return {
+        type: "bible",
+        lang: lang || defaultLang,
+        bookNum,
+        chapter,
+        verse: vs,
+        verseStart: vs,
+        verseEnd: ve,
+        verseSpec,
+        verses
+      };
+    };
+
     if (urlStr.startsWith("jwlibrary://")) {
-      const mBib = urlStr.match(/bible=(\d{2})(\d{3})(\d{3})/);
-      if (mBib) {
-        return {
-          type: "bible",
-          bookNum: parseInt(mBib[1], 10),
-          chapter: parseInt(mBib[2], 10),
-          verse: parseInt(mBib[3], 10)
-        };
+      const mBibRange = urlStr.match(/bible=(\d{2})(\d{3})(\d{3})(?:-(\d{2})(\d{3})(\d{3}))?/);
+      if (mBibRange) {
+        const b1 = parseInt(mBibRange[1], 10);
+        const c1 = parseInt(mBibRange[2], 10);
+        const v1 = parseInt(mBibRange[3], 10);
+        const v2 = mBibRange[6] && parseInt(mBibRange[4], 10) === b1 && parseInt(mBibRange[5], 10) === c1 ? parseInt(mBibRange[6], 10) : null;
+        return buildBibleResult(b1, c1, v1, v2, defaultLang);
       }
     }
 
@@ -373,27 +517,28 @@ window.DFWolBible = (function () {
       }
     }
 
-    // Liens Bible WOL: /wol/b/r30/lp-f/nwtsty/19/83#v=19:83:18
-    const mWolBible = urlStr.match(/\/wol\/b\/r\d+\/lp-([a-z]+)\/[^/]+\/(\d+)\/(\d+)(?:.*?[&#]v=(\d+):(\d+):(\d+))?/i);
+    // Liens Bible WOL: /wol/b/r30/lp-f/nwtsty/19/83#v=19:83:15-19:83:18
+    const mWolBible = urlStr.match(
+      /\/wol\/b\/r\d+\/lp-([a-z]+)\/[^/]+\/(\d+)\/(\d+)(?:.*?[&#]v=(\d+):(\d+):(\d+)(?:-(\d+):(\d+):(\d+))?)?/i
+    );
     if (mWolBible) {
-      return {
-        type: "bible",
-        lang: mWolBible[1] === "e" ? "en" : "fr",
-        bookNum: parseInt(mWolBible[2], 10),
-        chapter: parseInt(mWolBible[3], 10),
-        verse: mWolBible[6] ? parseInt(mWolBible[6], 10) : 1
-      };
+      const lang = mWolBible[1] === "e" ? "en" : "fr";
+      const b = parseInt(mWolBible[2], 10);
+      const c = parseInt(mWolBible[3], 10);
+      const v1 = mWolBible[6] ? parseInt(mWolBible[6], 10) : 1;
+      const v2 = mWolBible[9] && parseInt(mWolBible[7], 10) === b && parseInt(mWolBible[8], 10) === c ? parseInt(mWolBible[9], 10) : null;
+      return buildBibleResult(b, c, v1, v2, lang);
     }
 
-    // Liens JW.org Finder Bible: bible=BBCCCVVV
-    const mJwBib = urlStr.match(/bible=(\d{2})(\d{3})(\d{3})/);
+    // Liens JW.org Finder Bible: bible=BBCCCVVV ou bible=BBCCCVVV-BBCCCVVV
+    const mJwBib = urlStr.match(/bible=(\d{2})(\d{3})(\d{3})(?:-(\d{2})(\d{3})(\d{3}))?/);
     if (mJwBib) {
-      return {
-        type: "bible",
-        bookNum: parseInt(mJwBib[1], 10),
-        chapter: parseInt(mJwBib[2], 10),
-        verse: parseInt(mJwBib[3], 10)
-      };
+      const b1 = parseInt(mJwBib[1], 10);
+      const c1 = parseInt(mJwBib[2], 10);
+      const v1 = parseInt(mJwBib[3], 10);
+      const v2 = mJwBib[6] && parseInt(mJwBib[4], 10) === b1 && parseInt(mJwBib[5], 10) === c1 ? parseInt(mJwBib[6], 10) : null;
+      const lang = /wtlocale=E/i.test(urlStr) ? "en" : /wtlocale=F/i.test(urlStr) ? "fr" : defaultLang;
+      return buildBibleResult(b1, c1, v1, v2, lang);
     }
 
     // Notes de bas de page WOL (/wol/fn/)
@@ -477,6 +622,9 @@ window.DFWolBible = (function () {
     getBookDisplayName,
     findBookByName,
     getBookByNumber,
+    parseVerseSpec,
+    formatVerseSpec,
+    parseDataBibleAttr,
     formatJwBibleCode,
     buildScriptureLinks,
     parseScriptureReferences,

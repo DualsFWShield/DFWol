@@ -47,8 +47,13 @@ window.DFWolNet = (function () {
     "www.jw.org",
     "jw.org",
     "b.jw-cdn.org",
+    "cfp.jw-cdn.org",
     "cfp2.jw-cdn.org",
-    "cms-imgp.jw-cdn.org"
+    "cms-imgp.jw-cdn.org",
+    "pubmedia.jw-cdn.org",
+    "download-a.akamaihd.net",
+    "d34ji3l0qn3w2t.cloudfront.net",
+    "assetsnffrgf-a.akamaihd.net"
   ]);
 
   function isNativeCapacitor() {
@@ -457,6 +462,83 @@ window.DFWolNet = (function () {
     return result;
   }
 
+  async function fetchBlobWithProxyFallback(targetUrl, onProgress = null) {
+    const cleanUrl = String(targetUrl || "").trim();
+    if (!cleanUrl) throw new Error("URL manquante");
+
+    const readStream = async (resp) => {
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const contentLength = Number(resp.headers.get("Content-Length") || 0);
+      if (!resp.body || typeof resp.body.getReader !== "function") {
+        const blob = await resp.blob();
+        if (onProgress) onProgress(100, blob.size, blob.size);
+        return blob;
+      }
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          loaded += value.byteLength;
+          if (onProgress) {
+            const pct = contentLength > 0 ? Math.min(99, Math.round((loaded / contentLength) * 100)) : null;
+            onProgress(pct, loaded, contentLength);
+          }
+        }
+      }
+      const mime = resp.headers.get("Content-Type") || "application/octet-stream";
+      const blob = new Blob(chunks, { type: mime });
+      if (onProgress) onProgress(100, loaded, contentLength || loaded);
+      return blob;
+    };
+
+    try {
+      const directResp = await fetch(cleanUrl, { mode: "cors" });
+      return await readStream(directResp);
+    } catch (_) {}
+
+    if (isAllowedUpstreamUrl(cleanUrl)) {
+      if (isLocalServerProxyAvailable()) {
+        try {
+          const resp = await fetch(`/api/proxy?url=${encodeURIComponent(cleanUrl)}`);
+          return await readStream(resp);
+        } catch (_) {}
+      }
+      const customBase = getCustomProxyBase();
+      if (customBase) {
+        const sep = customBase.includes("?") ? "&" : "?";
+        const proxyUrl = customBase.includes("{url}")
+          ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
+          : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
+        const resp = await fetch(proxyUrl);
+        return await readStream(resp);
+      }
+    }
+
+    throw new Error("Téléchargement CORS direct bloqué sur cet origine.");
+  }
+
+  function proxyImageUrl(rawUrl) {
+    const cleanUrl = String(rawUrl || "").trim();
+    if (!cleanUrl || cleanUrl.startsWith("data:") || cleanUrl.startsWith("/api/proxy")) return cleanUrl;
+    if (/^https?:\/\/wol\.jw\.org\/(?:[a-z]{2}\/)?wol\/mp\//i.test(cleanUrl)) {
+      if (isLocalServerProxyAvailable()) {
+        return `/api/proxy?url=${encodeURIComponent(cleanUrl)}`;
+      }
+      const customBase = getCustomProxyBase();
+      if (customBase) {
+        const sep = customBase.includes("?") ? "&" : "?";
+        return customBase.includes("{url}")
+          ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
+          : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
+      }
+    }
+    return cleanUrl;
+  }
+
   function clearHtmlCache() {
     htmlMemoryCache.clear();
     proxyCooldowns.clear();
@@ -476,6 +558,8 @@ window.DFWolNet = (function () {
     getBibleAudio,
     getArticleAudioByDocId,
     fetchTextDirect,
+    fetchBlobWithProxyFallback,
+    proxyImageUrl,
     extractDocIdFromUrlOrHtml,
     fetchWolHtml,
     clearHtmlCache

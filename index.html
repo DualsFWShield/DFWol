@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#4a6da7" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="DFWol" />
@@ -89,9 +90,11 @@
               <button type="button" class="lang-toggle-btn active" data-quick-lang="fr">FR</button>
               <button type="button" class="lang-toggle-btn" data-quick-lang="en">EN</button>
             </div>
-            <span id="connection-badge" class="status-pill online">● En ligne</span>
+            <span id="connection-badge" class="status-pill online hidden">● En ligne</span>
+            <button type="button" id="btn-header-ai" class="btn-ai-chip" title="Assistant IA 1-clic"><span class="ai-chip-spark">✨</span><span class="ai-chip-label"> IA</span></button>
             <button type="button" id="btn-install-pwa" class="btn-secondary btn-xs hidden">📲 Installer</button>
             <button type="button" id="btn-theme-toggle" class="btn-icon" title="Mode Clair / Sombre">🌓</button>
+            <button type="button" id="btn-header-settings" class="btn-icon" title="Paramètres & Clé IA">⚙️</button>
             <button type="button" id="btn-cmd-palette" class="btn-ghost btn-xs desktop-only-flex" title="Commandes rapides (Ctrl+K)">
               <kbd>Ctrl+K</kbd>
             </button>
@@ -99,21 +102,20 @@
         </div>
       </div>
 
-      <!-- Niveau 2 : Barre de Navigation Principale #292929 -->
+      <!-- Niveau 2 : Barre de Navigation Principale #292929 (5 Onglets 1:1 JW Library) -->
       <nav class="jw-primary-nav" aria-label="Navigation principale">
         <div class="jw-primary-nav-inner">
           <div class="jw-nav-tabs">
             <button type="button" class="jw-nav-item active" data-tab="dashboard">ACCUEIL</button>
             <button type="button" class="jw-nav-item" data-tab="bible">BIBLE</button>
-            <button type="button" class="jw-nav-item" data-tab="search">RECHERCHE</button>
-            <button type="button" class="jw-nav-item" data-tab="reader">RÉUNIONS &amp; PUBS</button>
-            <button type="button" class="jw-nav-item" data-tab="videos">VIDÉOS</button>
-            <button type="button" class="jw-nav-item" data-tab="settings">PARAMÈTRES</button>
+            <button type="button" class="jw-nav-item" data-tab="library">BIBLIOTHÈQUE</button>
+            <button type="button" class="jw-nav-item" data-tab="meetings">RÉUNIONS</button>
+            <button type="button" class="jw-nav-item" data-tab="study">ÉTUDE INDIVIDUELLE</button>
           </div>
           <div class="jw-nav-quick-links">
-            <button type="button" id="sb-open-meetings" class="jw-quick-link">📅 Réunions</button>
             <button type="button" id="sb-open-insight" class="jw-quick-link">🏛️ Perspicace</button>
             <button type="button" id="sb-open-rsg" class="jw-quick-link">🧭 Guide</button>
+            <button type="button" id="sb-open-search" class="jw-quick-link">🔍 Recherche</button>
           </div>
         </div>
       </nav>
@@ -126,37 +128,20 @@
            ONGLET 1 : ACCUEIL & TEXTE DU JOUR
            ========================================================== -->
       <section id="tab-dashboard" class="tab-panel active" aria-labelledby="heading-dashboard">
-        <div class="jw-billboard">
-          <div class="jw-billboard-main">
-            <div class="jw-eyebrow">CENTRE D'ÉTUDE BIBLIQUE • FRANÇAIS &amp; ANGLAIS</div>
-            <h1 id="heading-dashboard">Tout JW.org et WOL dans une seule application</h1>
-            <p class="jw-billboard-desc">
-              Lisez la Bible et les publications directement ici avec <strong>audio MP3 &amp; synthèse vocale</strong>, cherchez jusque dans les <strong>sous-titres des vidéos</strong>, extrayez le <strong>Guide de recherche en lot</strong> et consultez le <strong>Texte du jour</strong> en 1 mot, 1 phrase ou complet.
-            </p>
-            <div class="hero-cta-row">
-              <button type="button" class="btn-primary" data-goto-tab="search">Recherche Totale</button>
-              <button type="button" class="btn-secondary" data-goto-tab="bible">Lire la Bible &amp; Guide Auto</button>
-              <button type="button" class="btn-secondary" data-goto-tab="videos">Vidéos &amp; Sous-titres</button>
-            </div>
-          </div>
-
-          <div class="jw-billboard-stats">
-            <div class="stat-card">
-              <span class="stat-label">Réunion de la semaine</span>
-              <strong id="dash-iso-week" class="stat-value">Semaine --</strong>
-              <button type="button" id="dash-open-week-inapp" class="stat-link-btn">Ouvrir le programme →</button>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Lecture Biblique</span>
-              <strong id="dash-reading-progress" class="stat-value">0 / 1189 ch.</strong>
-              <button type="button" class="stat-link-btn" data-goto-tab="settings">Mettre à jour →</button>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">Notes d'étude</span>
-              <strong id="dash-notes-count" class="stat-value">0 notes</strong>
-              <button type="button" class="stat-link-btn" data-goto-tab="settings">Ouvrir le carnet →</button>
-            </div>
-          </div>
+        <h1 id="heading-dashboard" class="sr-only">Accueil DFWol</h1>
+        <div class="home-quick-strip">
+          <button type="button" class="home-quick-pill" id="dash-open-week-inapp">
+            <span class="hq-icon">📅</span>
+            <span class="hq-text"><strong id="dash-iso-week">Semaine --</strong><small>Réunions →</small></span>
+          </button>
+          <button type="button" class="home-quick-pill" id="dash-goto-reading">
+            <span class="hq-icon">📖</span>
+            <span class="hq-text"><strong id="dash-reading-progress">0 / 1189 ch.</strong><small>Lecture →</small></span>
+          </button>
+          <button type="button" class="home-quick-pill" id="hero-btn-ai">
+            <span class="hq-icon">✨</span>
+            <span class="hq-text"><strong id="dash-notes-count">0 notes</strong><small>Assistant IA →</small></span>
+          </button>
         </div>
 
         <div class="dashboard-grid">
@@ -205,73 +190,20 @@
             <div class="card-footer">
               <div class="btn-group">
                 <button type="button" id="btn-dt-open-inapp" class="btn-secondary btn-sm">📖 Lire le verset</button>
+                <button type="button" id="btn-dt-ai" class="btn-ai-chip">✨ IA 1-clic</button>
                 <button type="button" id="btn-dt-copy" class="btn-secondary btn-sm">📋 Copier</button>
                 <button type="button" id="btn-dt-save-note" class="btn-secondary btn-sm">📝 Annoter</button>
-                <button type="button" class="btn-ghost btn-sm" data-goto-tab="settings">⚙️ Paramètres &amp; Widget</button>
               </div>
             </div>
           </div>
 
-          <!-- Ouvrages & Accès Verset Express -->
+          <!-- Accès Verset Express + Récemment consultés -->
           <div class="dashboard-right-stack">
             <div class="card">
               <div class="card-header">
                 <div>
-                  <span class="badge badge-blue">Bibliothèque en ligne intégrée</span>
-                  <h2 class="card-title">Ouvrages &amp; Réunions</h2>
-                </div>
-              </div>
-              <div class="reference-hub-grid" id="dashboard-inapp-hub">
-                <button type="button" class="ref-tile" data-goto-tab="bible">
-                  <span class="ref-tile-icon">📖</span>
-                  <div class="ref-tile-info">
-                    <strong>La Bible (nwtsty)</strong>
-                    <span>Audio MP3 + Parallèle FR/EN</span>
-                  </div>
-                </button>
-                <button type="button" class="ref-tile" id="tile-open-meetings">
-                  <span class="ref-tile-icon">📅</span>
-                  <div class="ref-tile-info">
-                    <strong>Réunion de la semaine</strong>
-                    <span>Vie &amp; Ministère + Tour de Garde</span>
-                  </div>
-                </button>
-                <button type="button" class="ref-tile" id="tile-open-insight">
-                  <span class="ref-tile-icon">🏛️</span>
-                  <div class="ref-tile-info">
-                    <strong>Étude perspicace (it)</strong>
-                    <span>Encyclopédie biblique intégrée</span>
-                  </div>
-                </button>
-                <button type="button" class="ref-tile" id="tile-open-rsg">
-                  <span class="ref-tile-icon">🧭</span>
-                  <div class="ref-tile-info">
-                    <strong>Guide de recherche (rsg)</strong>
-                    <span>Extraction par verset &amp; en lot</span>
-                  </div>
-                </button>
-                <button type="button" class="ref-tile" data-goto-tab="videos">
-                  <span class="ref-tile-icon">🎬</span>
-                  <div class="ref-tile-info">
-                    <strong>JW Broadcasting &amp; Vidéos</strong>
-                    <span>Lecteur MP4 + Sous-titres VTT</span>
-                  </div>
-                </button>
-                <button type="button" class="ref-tile" id="tile-open-wt">
-                  <span class="ref-tile-icon">📘</span>
-                  <div class="ref-tile-info">
-                    <strong>La Tour de Garde</strong>
-                    <span>Rechercher &amp; lire avec audio</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <span class="badge badge-emerald">Accès direct</span>
-                  <h2 class="card-title">Ouvrir un verset &amp; son Guide</h2>
+                  <span class="badge badge-emerald">Accès direct Multi-verset</span>
+                  <h2 class="card-title">Ouvrir un passage &amp; son Guide</h2>
                 </div>
               </div>
               <form id="quick-verse-form" class="quick-verse-bar">
@@ -279,183 +211,37 @@
                   type="text"
                   id="quick-verse-input"
                   class="text-input"
-                  placeholder="Ex: Psaume 83:18, Mat 24:14, 1 Cor 13:4-8…"
+                  placeholder="Ex: Psaume 83:15-18, 1 Cor 13:4-8, Jude 3-5…"
                 />
                 <button type="submit" class="btn-primary">Ouvrir</button>
               </form>
               <div class="quick-verse-chips">
                 <span class="chip-label">Exemples :</span>
-                <button type="button" class="chip-btn" data-sample-verse="Psaume 83:18">Psaume 83:18</button>
-                <button type="button" class="chip-btn" data-sample-verse="Jean 17:3">Jean 17:3</button>
+                <button type="button" class="chip-btn" data-sample-verse="Psaume 83:15-18">Psaume 83:15-18</button>
+                <button type="button" class="chip-btn" data-sample-verse="1 Cor 13:4-8">1 Cor 13:4-8</button>
                 <button type="button" class="chip-btn" data-sample-verse="Révélation 21:3, 4">Révélation 21:3, 4</button>
                 <button type="button" class="chip-btn" data-sample-verse="Proverbes 3:5, 6">Proverbes 3:5, 6</button>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- ==========================================================
-           ONGLET 2 : RECHERCHE TOTALE
-           ========================================================== -->
-      <section id="tab-search" class="tab-panel" aria-labelledby="heading-search">
-        <div class="section-header">
-          <div>
-            <span class="badge badge-blue">JW.org Search API + WOL Booléen</span>
-            <h1 id="heading-search">Recherche totale</h1>
-            <p class="section-subtitle">
-              Cherchez dans les vidéos (y compris les sous-titres), publications, Bible, audio et index. Tous les résultats s'ouvrent dans DFWol.
-            </p>
-          </div>
-        </div>
-
-        <div class="search-studio-layout">
-          <div class="card search-builder-card">
-            <form id="advanced-search-form" autocomplete="off">
-              <div class="search-scope-pills" id="search-scope-pills">
-                <button type="button" class="pill-btn active" data-scope-pill="all">Tout</button>
-                <button type="button" class="pill-btn" data-scope-pill="videos">Vidéos &amp; Sous-titres</button>
-                <button type="button" class="pill-btn" data-scope-pill="publications">Publications</button>
-                <button type="button" class="pill-btn" data-scope-pill="bible">Bible</button>
-                <button type="button" class="pill-btn" data-scope-pill="audio">Audio</button>
-                <button type="button" class="pill-btn" data-scope-pill="indexes">Index &amp; Guide</button>
-              </div>
-
-              <div class="adv-search-input-wrap">
-                <input
-                  type="text"
-                  id="adv-search-input"
-                  class="text-input input-lg"
-                  placeholder="Mot-clé, phrase exacte de vidéo, verset, ou requête WOL (#titre &amp; mot*)…"
-                />
-                <button type="button" id="btn-clear-search" class="btn-icon" title="Effacer">✕</button>
-              </div>
-
-              <div class="operator-toolbar" aria-label="Opérateurs WOL">
-                <span class="operator-toolbar-label">Opérateurs WOL :</span>
-                <button type="button" class="op-btn" data-op=" &amp; "><code>&amp;</code> <span>ET</span></button>
-                <button type="button" class="op-btn" data-op=" | "><code>|</code> <span>OU</span></button>
-                <button type="button" class="op-btn" data-op=" !"><code>!</code> <span>SAUF</span></button>
-                <button type="button" class="op-btn" data-op-wrap="&quot;"><code>&quot;…&quot;</code> <span>Exact</span></button>
-                <button type="button" class="op-btn" data-op="*"><code>*</code> <span>Joker</span></button>
-                <button type="button" class="op-btn" data-op-wrap="()"><code>(…)</code> <span>Groupe</span></button>
-                <button type="button" class="op-btn" data-op="#"><code>#</code> <span>Titres</span></button>
-              </div>
-
-              <div class="query-explainer-box">
-                <div class="explainer-title">Analyse de la requête :</div>
-                <div id="query-explainer-text" class="explainer-content">
-                  Saisissez un terme ou sélectionnez un modèle expert à droite.
-                </div>
-              </div>
-
-              <div class="search-filters-grid">
-                <div class="form-group">
-                  <label for="filter-scope">Catégorie</label>
-                  <select id="filter-scope" class="select-input">
-                    <option value="all">Tout (Vidéos, Pubs, Bible, Audio, Index)</option>
-                    <option value="videos">Vidéos &amp; Sous-titres</option>
-                    <option value="publications">Publications</option>
-                    <option value="bible">Bible d'étude (nwtsty)</option>
-                    <option value="audio">Audio &amp; Cantiques</option>
-                    <option value="indexes">Index &amp; Guide de recherche</option>
-                    <option value="it">Étude perspicace (WOL)</option>
-                    <option value="qreaders">Questions des lecteurs (WOL)</option>
-                    <option value="biographies">Biographies (WOL)</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="filter-engine">Moteur</label>
-                  <select id="filter-engine" class="select-input">
-                    <option value="auto">Auto (JW.org API + WOL si opérateurs)</option>
-                    <option value="jw">JW.org Complet</option>
-                    <option value="wol">WOL Booléen Strict</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="filter-proximity">Proximité WOL</label>
-                  <select id="filter-proximity" class="select-input">
-                    <option value="par">Même paragraphe (par)</option>
-                    <option value="sen">Même phrase (sen)</option>
-                    <option value="doc">Même document (doc)</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="filter-sort">Tri WOL</label>
-                  <select id="filter-sort" class="select-input">
-                    <option value="occ">Pertinence (occ)</option>
-                    <option value="newest">Plus récent</option>
-                    <option value="oldest">Plus ancien</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="search-action-bar">
-                <button type="submit" id="btn-search-live" class="btn-primary">Rechercher</button>
-                <button type="button" id="btn-save-query" class="btn-secondary">⭐ Sauvegarder</button>
-                <button type="button" id="btn-launch-wol" class="btn-ghost">WOL ↗</button>
-                <button type="button" id="btn-launch-jw" class="btn-ghost">JW.org ↗</button>
-              </div>
-            </form>
-
-            <div id="live-search-results-panel" class="live-results-panel">
-              <div class="live-results-header">
-                <h3 id="live-results-title">Résultats</h3>
-                <span id="live-results-status" class="badge badge-subtle">Prêt</span>
-              </div>
-              <div id="live-results-container" class="live-results-container">
-                <div class="empty-state">
-                  <div class="empty-icon">🔍</div>
-                  <p>Saisissez un terme pour rechercher instantanément dans tout JW.org et WOL.jw.org.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="search-sidebar-stack">
-            <div class="card">
+            <div class="card" id="dash-recent-card">
               <div class="card-header">
                 <div>
-                  <span class="badge badge-amber">Raccourcis</span>
-                  <h3 class="card-title">Modèles WOL</h3>
+                  <span class="badge badge-subtle">Historique local</span>
+                  <h2 class="card-title">Récemment consultés</h2>
                 </div>
               </div>
-              <div class="preset-list">
-                <button type="button" class="preset-item" data-preset-q="#&quot;Questions des lecteurs&quot; &amp; " data-preset-p="doc" data-preset-r="newest">
-                  <strong>Questions des lecteurs sur…</strong>
-                  <span>Cible la rubrique officielle sur WOL</span>
-                </button>
-                <button type="button" class="preset-item" data-preset-q="(&quot;mot hébreu&quot; | &quot;mot grec&quot; | &quot;signifie littéralement&quot;) &amp; " data-preset-p="par" data-preset-r="occ">
-                  <strong>Étymologie Hébreu / Grec</strong>
-                  <span>Sens littéral et racines bibliques</span>
-                </button>
-                <button type="button" class="preset-item" data-preset-q="(archéolog* | inscription* | manuscrit*) &amp; Bible" data-preset-p="par" data-preset-r="occ">
-                  <strong>Archéologie Biblique</strong>
-                  <span>Découvertes confirmant les Écritures</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <span class="badge badge-blue">Historique</span>
-                  <h3 class="card-title">Recherches sauvegardées</h3>
-                </div>
-                <button type="button" id="btn-clear-history" class="btn-ghost btn-xs">Vider</button>
-              </div>
-              <div id="saved-searches-container" class="saved-searches-list"></div>
+              <div id="dash-recent-list" class="recent-list-compact"></div>
             </div>
           </div>
         </div>
       </section>
 
       <!-- ==========================================================
-           ONGLET 3 : BIBLE D'ÉTUDE FAÇON JW LIBRARY + GUIDE EN LOT
+           ONGLET 2 : BIBLE D'ÉTUDE FAÇON JW LIBRARY + MULTI-VERSET
            ========================================================== -->
       <section id="tab-bible" class="tab-panel" aria-labelledby="bible-top-title">
         <div class="card bible-jwl-shell">
-          <!-- Barre supérieure façon JW Library -->
           <div class="bible-jwl-topbar" id="bible-top-bar">
             <div class="bible-jwl-top-left">
               <button type="button" id="btn-bible-back" class="bible-jwl-back hidden" title="Retour" aria-label="Retour">
@@ -479,7 +265,6 @@
             </div>
           </div>
 
-          <!-- Sous-onglets façon Capture 2 (LIVRES | LECTURE | GUIDE EN LOT | ANNEXES) -->
           <div class="bible-jwl-subtabs" id="bible-subtabs" role="tablist">
             <button type="button" class="bible-subtab active" data-bible-subtab="books">LIVRES</button>
             <button type="button" class="bible-subtab" data-bible-subtab="reader">LECTURE</button>
@@ -487,7 +272,6 @@
             <button type="button" class="bible-subtab" data-bible-subtab="appendices">ANNEXES</button>
           </div>
 
-          <!-- Vue 1 : Grille 66 Livres (6 colonnes, couleurs officielles) -->
           <div id="bible-view-books" class="bible-subview">
             <div class="bible-section-heading" id="bible-hebrew-heading">ÉCRITURES HÉBRAÏQUES ET ARAMÉENNES</div>
             <div id="bible-hebrew-grid" class="bible-jwl-books-grid"></div>
@@ -496,7 +280,6 @@
             <div id="bible-greek-grid" class="bible-jwl-books-grid"></div>
           </div>
 
-          <!-- Vue 2 : Grille Chapitres d'un Livre (Capture 1) -->
           <div id="bible-view-chapters" class="bible-subview hidden">
             <div id="bible-chapters-grid" class="bible-jwl-chapters-grid"></div>
             <button type="button" id="btn-bible-book-intro" class="bible-jwl-intro-btn">
@@ -505,55 +288,58 @@
             </button>
           </div>
 
-          <!-- Vue 3 : Lecteur de Chapitre & Guide d'étude par verset -->
           <div id="bible-view-reader" class="bible-subview hidden">
             <div class="bible-toolbar">
               <div class="bible-picker-inline">
                 <select id="picker-book" class="select-input" aria-label="Livre"></select>
                 <select id="picker-chapter" class="select-input" aria-label="Chapitre"></select>
-                <input type="number" id="picker-verse" class="text-input" min="1" max="176" placeholder="Verset" aria-label="Verset" />
+                <input type="text" id="picker-verse" class="text-input" placeholder="18 ou 15-18" aria-label="Verset ou plage" />
                 <button type="button" id="btn-bible-go" class="btn-primary btn-sm">Lire</button>
               </div>
               <div class="btn-group">
                 <button type="button" id="btn-bible-prev-ch" class="btn-icon" title="Chapitre précédent">◀</button>
                 <button type="button" id="btn-bible-next-ch" class="btn-icon" title="Chapitre suivant">▶</button>
+                <button type="button" id="btn-bible-multiselect" class="btn-secondary btn-sm" title="Sélectionner plusieurs versets">☑ Multi-versets</button>
                 <button type="button" id="btn-bible-audio" class="btn-primary btn-sm">🎧 Écouter</button>
-                <button type="button" id="btn-bible-parallel" class="btn-secondary btn-sm">🌍 Parallèle FR/EN</button>
+                <button type="button" id="btn-bible-mp3-dl" class="btn-secondary btn-sm" title="Télécharger le MP3 du chapitre">⬇️ MP3</button>
+                <button type="button" id="btn-bible-parallel" class="btn-secondary btn-sm">🌍 FR/EN</button>
+                <button type="button" id="btn-bible-pdf" class="btn-secondary btn-sm">📄 PDF</button>
               </div>
             </div>
+
+            <div id="bible-multi-selection-bar" class="bible-multi-selection-bar hidden"></div>
 
             <div class="bible-split-layout">
               <div class="bible-chapter-pane">
                 <div class="bible-pane-header">
                   <h2 id="bible-reader-title">Psaumes 83</h2>
-                  <span class="badge badge-subtle">Touchez un verset pour son étude</span>
+                  <span class="badge badge-subtle">Touchez un verset (ou activez Multi-versets)</span>
                 </div>
                 <div id="bible-reader-body" class="bible-reader-body"></div>
               </div>
 
               <div class="bible-study-pane" id="bible-study-panel">
-                <p class="card-helper-text">Sélectionnez un verset pour afficher ses notes d'étude, renvois et articles du Guide de recherche.</p>
+                <p class="card-helper-text">Sélectionnez un ou plusieurs versets pour afficher notes d'étude, renvois, Guide de recherche et IA 1-clic.</p>
               </div>
             </div>
           </div>
 
-          <!-- Vue 4 : Extracteur Guide de Recherche en Lot -->
           <div id="bible-view-batch" class="bible-subview hidden">
             <div class="card-header">
               <div>
-                <span class="badge badge-amber">Extraction en Lot &amp; Playlist Audio</span>
+                <span class="badge badge-amber">Extraction en Lot &amp; Playlist Audio &amp; IA</span>
                 <h2 class="card-title">Guide de recherche automatique par verset &amp; en lot</h2>
               </div>
               <button type="button" id="btn-sample-batch" class="btn-ghost btn-xs">Charger un exemple</button>
             </div>
             <p class="card-helper-text">
-              Collez une liste de versets ou une plage (ex : <code>Ps 83:17-18 ; Jean 17:3 ; Romains 12:1, 2 ; Isaïe 41:10</code>) pour extraire automatiquement tous les articles associés et les écouter ou les compiler.
+              Collez une liste de versets ou une plage (ex : <code>Ps 83:15-18 ; 1 Cor 13:4-8 ; Proverbes 3:5, 6 ; Jude 3-5</code>) pour extraire tous les articles associés, les compiler en PDF ou préparer la réponse IA en 1 clic.
             </p>
             <textarea
               id="batch-scripture-input"
               class="textarea-input"
               rows="3"
-              placeholder="Ex : Psaume 83:18 ; Jean 17:3 ; Proverbes 3:5, 6 ; Révélation 21:3, 4"
+              placeholder="Ex : Psaume 83:15-18 ; Jean 17:3 ; Proverbes 3:5, 6 ; Révélation 21:3, 4"
             ></textarea>
 
             <div class="batch-actions-bar">
@@ -574,15 +360,16 @@
                 <button type="button" id="btn-batch-unselect-all" class="btn-ghost btn-xs">Tout décocher</button>
               </div>
               <div class="btn-group">
-                <button type="button" id="btn-batch-play-audio" class="btn-secondary btn-sm">🎧 Tout écouter (Playlist)</button>
-                <button type="button" id="btn-batch-compile-dossier" class="btn-primary btn-sm">📄 Compiler &amp; Lire le Dossier</button>
+                <button type="button" id="btn-batch-ai" class="btn-ai-chip">✨ Réponse IA (1 clic)</button>
+                <button type="button" id="btn-batch-play-audio" class="btn-secondary btn-sm">🎧 Playlist Audio</button>
+                <button type="button" id="btn-batch-pdf" class="btn-secondary btn-sm">📄 Export PDF</button>
+                <button type="button" id="btn-batch-compile-dossier" class="btn-primary btn-sm">📄 Compiler &amp; Lire</button>
               </div>
             </div>
 
             <div id="batch-scripture-results" class="batch-results-grid"></div>
           </div>
 
-          <!-- Vue 5 : Introduction & Annexes -->
           <div id="bible-view-appendices" class="bible-subview hidden">
             <div class="reference-hub-grid">
               <button type="button" class="ref-tile" data-open-bible-wol="https://wol.jw.org/fr/wol/publication/r30/lp-f/nwtsty">
@@ -619,333 +406,566 @@
       </section>
 
       <!-- ==========================================================
-           ONGLET 4 : VIDÉOS & SOUS-TITRES
+           ONGLET 3 : BIBLIOTHÈQUE 1:1 JW LIBRARY (Pubs, Vidéos, Audio, Téléchargé, Recherche)
            ========================================================== -->
-      <section id="tab-videos" class="tab-panel" aria-labelledby="heading-videos">
-        <div class="section-header">
-          <div>
-            <span class="badge badge-blue">JW Broadcasting &amp; Médiathèque</span>
-            <h1 id="heading-videos">Vidéos &amp; Extracteur de sous-titres</h1>
-            <p class="section-subtitle">
-              Regardez les vidéos dans l'app avec sous-titres synchronisés FR/EN, cherchez dans les dialogues et exportez en .VTT, .SRT ou .TXT.
-            </p>
-          </div>
-        </div>
-
-        <div id="video-player-stage" class="card video-stage-card hidden">
-          <div class="video-stage-header">
-            <div>
-              <h2 id="video-active-title">Lecteur Vidéo</h2>
-              <span id="video-active-meta" class="badge badge-subtle">—</span>
+      <section id="tab-library" class="tab-panel" aria-labelledby="library-top-title">
+        <div class="card bible-jwl-shell">
+          <div class="bible-jwl-topbar" id="library-top-bar">
+            <div class="bible-jwl-top-left">
+              <div>
+                <h1 id="library-top-title" class="bible-jwl-title">Bibliothèque</h1>
+                <div id="library-top-sub" class="bible-jwl-subtitle">Français</div>
+              </div>
             </div>
-            <div class="btn-group">
-              <select id="video-quality-select" class="select-input input-sm" style="width:auto;" aria-label="Qualité vidéo"></select>
-              <button type="button" id="video-btn-switch-lang" class="btn-secondary btn-sm">🌍 FR / EN</button>
+            <div class="bible-jwl-top-actions">
+              <button type="button" id="btn-lib-top-search" class="bible-jwl-iconbtn" title="Rechercher">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="btn-lib-top-lang" class="bible-jwl-iconbtn" title="Basculer Français / English">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 14l2.5-6L12 14m-4.2-1.8h3.4M14 9h4m-2 0v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="btn-lib-top-history" class="bible-jwl-iconbtn" title="Historique récent">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2"/></svg>
+              </button>
             </div>
           </div>
 
-          <div class="video-split-layout">
-            <div class="video-player-box">
-              <video id="dfwol-video-el" class="dfwol-video-el" controls playsinline crossorigin="anonymous"></video>
+          <div class="bible-jwl-subtabs" role="tablist">
+            <button type="button" class="bible-subtab active" data-lib-subtab="publications">PUBLICATIONS</button>
+            <button type="button" class="bible-subtab" data-lib-subtab="videos">VIDÉOS</button>
+            <button type="button" class="bible-subtab" data-lib-subtab="audio">CONTENUS AUDIO</button>
+            <button type="button" class="bible-subtab" data-lib-subtab="downloads">TÉLÉCHARGÉ</button>
+            <button type="button" class="bible-subtab" data-lib-subtab="search">RECHERCHE</button>
+          </div>
 
-              <div class="subtitle-export-bar">
-                <button type="button" id="sub-btn-copy-plain" class="btn-secondary btn-xs">📋 Copier Texte</button>
-                <button type="button" id="sub-btn-copy-ts" class="btn-secondary btn-xs">⏱️ Copier Horodaté</button>
-                <button type="button" id="sub-btn-dl-vtt" class="btn-ghost btn-xs">⬇️ .VTT</button>
-                <button type="button" id="sub-btn-dl-srt" class="btn-ghost btn-xs">⬇️ .SRT</button>
-                <button type="button" id="sub-btn-dl-txt" class="btn-ghost btn-xs">⬇️ .TXT</button>
-                <button type="button" id="sub-btn-extract-verses" class="btn-primary btn-xs">📖 Extraire Versets</button>
-                <button type="button" id="sub-btn-tts" class="btn-ghost btn-xs">🗣️ TTS</button>
-                <button type="button" id="sub-btn-to-notes" class="btn-ghost btn-xs">📝 Notes</button>
+          <!-- Sous-vue 1 : PUBLICATIONS (Capture 1) -->
+          <div id="lib-view-publications" class="jwl-lib-subview">
+            <div id="lib-publications-list" class="jwl-pub-list"></div>
+            <div id="lib-publications-drill" class="jwl-drill-panel hidden">
+              <div class="jwl-drill-header">
+                <button type="button" id="btn-lib-pub-back" class="bible-jwl-back" aria-label="Retour">
+                  <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+                </button>
+                <h2 id="lib-pub-drill-title">Catégorie</h2>
+              </div>
+              <div id="lib-pub-drill-body" class="jwl-audio-list"></div>
+            </div>
+          </div>
+
+          <!-- Sous-vue 2 : VIDÉOS (Capture 8 + Lecteur + Download MP4) -->
+          <div id="lib-view-videos" class="jwl-lib-subview hidden">
+            <div id="video-player-stage" class="video-stage-card hidden" style="margin-bottom:1rem;">
+              <div class="video-stage-header">
+                <div>
+                  <h2 id="video-active-title">Lecteur Vidéo</h2>
+                  <span id="video-active-meta" class="badge badge-subtle">—</span>
+                </div>
+                <div class="btn-group">
+                  <select id="video-quality-select" class="select-input input-sm" style="width:auto;" aria-label="Qualité vidéo"></select>
+                  <button type="button" id="video-btn-download" class="btn-primary btn-sm">⬇️ Télécharger MP4</button>
+                  <button type="button" id="video-btn-switch-lang" class="btn-secondary btn-sm">🌍 FR / EN</button>
+                </div>
               </div>
 
-              <div id="video-cited-verses-box" class="video-cited-verses-box"></div>
-            </div>
+              <div class="video-split-layout">
+                <div class="video-player-box">
+                  <video id="dfwol-video-el" class="dfwol-video-el" controls playsinline crossorigin="anonymous"></video>
 
-            <div class="video-transcript-pane">
-              <div class="transcript-pane-header">
-                <strong>Sous-titres synchronisés</strong>
-                <input type="search" id="video-transcript-filter" class="text-input input-sm" placeholder="Filtrer dans les sous-titres…" />
+                  <div class="subtitle-export-bar">
+                    <button type="button" id="sub-btn-copy-plain" class="btn-secondary btn-xs">📋 Copier Texte</button>
+                    <button type="button" id="sub-btn-copy-ts" class="btn-secondary btn-xs">⏱️ Copier Horodaté</button>
+                    <button type="button" id="sub-btn-dl-vtt" class="btn-ghost btn-xs">⬇️ .VTT</button>
+                    <button type="button" id="sub-btn-dl-srt" class="btn-ghost btn-xs">⬇️ .SRT</button>
+                    <button type="button" id="sub-btn-dl-txt" class="btn-ghost btn-xs">⬇️ .TXT</button>
+                    <button type="button" id="sub-btn-extract-verses" class="btn-primary btn-xs">📖 Versets</button>
+                    <button type="button" id="sub-btn-ai" class="btn-ai-chip">✨ IA (Sous-titres)</button>
+                    <button type="button" id="sub-btn-tts" class="btn-ghost btn-xs">🗣️ TTS</button>
+                    <button type="button" id="sub-btn-to-notes" class="btn-ghost btn-xs">📝 Notes</button>
+                  </div>
+
+                  <div id="video-cited-verses-box" class="video-cited-verses-box"></div>
+                </div>
+
+                <div class="video-transcript-pane">
+                  <div class="transcript-pane-header">
+                    <strong>Sous-titres synchronisés</strong>
+                    <input type="search" id="video-transcript-filter" class="text-input input-sm" placeholder="Filtrer dans les sous-titres…" />
+                  </div>
+                  <div id="video-transcript-list" class="video-transcript-list"></div>
+                </div>
               </div>
-              <div id="video-transcript-list" class="video-transcript-list"></div>
+            </div>
+
+            <div class="video-browser-controls">
+              <form id="video-search-form" class="video-search-form">
+                <input type="search" id="video-search-input" class="text-input" placeholder="Chercher une vidéo ou une phrase dans les sous-titres…" />
+                <button type="submit" class="btn-primary btn-sm">Rechercher</button>
+              </form>
+            </div>
+
+            <!-- Bannières horizontales 1:1 JW Library (Capture 8) -->
+            <div id="video-categories-banners" class="jwl-video-banners-stack"></div>
+
+            <!-- Drill-down grille vidéos -->
+            <div id="video-drill-header" class="jwl-drill-header hidden">
+              <button type="button" id="btn-video-drill-back" class="bible-jwl-back" aria-label="Retour catégories">
+                <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+              </button>
+              <h2 id="video-drill-title">Vidéos</h2>
+            </div>
+            <div id="video-catalog-grid" class="video-catalog-grid hidden"></div>
+          </div>
+
+          <!-- Sous-vue 3 : CONTENUS AUDIO (Capture 2) -->
+          <div id="lib-view-audio" class="jwl-lib-subview hidden">
+            <div id="lib-audio-list" class="jwl-audio-list"></div>
+            <div id="lib-audio-drill" class="jwl-drill-panel hidden">
+              <div class="jwl-drill-header">
+                <button type="button" id="btn-lib-audio-back" class="bible-jwl-back" aria-label="Retour audio">
+                  <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+                </button>
+                <h2 id="lib-audio-drill-title">Contenus audio</h2>
+              </div>
+              <div id="lib-audio-drill-body" class="jwl-audio-list"></div>
             </div>
           </div>
-        </div>
 
-        <div class="card mt-lg">
-          <div class="video-browser-controls">
-            <form id="video-search-form" class="video-search-form">
-              <input type="search" id="video-search-input" class="text-input" placeholder="Chercher une vidéo ou une phrase dite dans les sous-titres…" />
-              <button type="submit" class="btn-primary btn-sm">Rechercher</button>
-            </form>
-            <select id="video-category-select" class="select-input" style="max-width:300px;" aria-label="Catégorie">
-              <option value="LatestVideos">Dernières vidéos</option>
-            </select>
+          <!-- Sous-vue 4 : TÉLÉCHARGÉ -->
+          <div id="lib-view-downloads" class="jwl-lib-subview hidden">
+            <div id="lib-downloads-container"></div>
           </div>
-          <div id="video-catalog-grid" class="video-catalog-grid"></div>
+
+          <!-- Sous-vue 5 : RECHERCHE TOTALE -->
+          <div id="lib-view-search" class="jwl-lib-subview hidden">
+            <div class="search-studio-layout">
+              <div class="search-builder-card">
+                <form id="advanced-search-form" autocomplete="off">
+                  <div class="search-scope-pills" id="search-scope-pills">
+                    <button type="button" class="pill-btn active" data-scope-pill="all">Tout</button>
+                    <button type="button" class="pill-btn" data-scope-pill="videos">Vidéos &amp; Sous-titres</button>
+                    <button type="button" class="pill-btn" data-scope-pill="publications">Publications</button>
+                    <button type="button" class="pill-btn" data-scope-pill="bible">Bible</button>
+                    <button type="button" class="pill-btn" data-scope-pill="audio">Audio</button>
+                    <button type="button" class="pill-btn" data-scope-pill="indexes">Index &amp; Guide</button>
+                  </div>
+
+                  <div class="adv-search-input-wrap">
+                    <input
+                      type="text"
+                      id="adv-search-input"
+                      class="text-input input-lg"
+                      placeholder="Mot-clé, phrase exacte de vidéo, verset (Livre xx:xx-xx), ou requête WOL (#titre &amp; mot*)…"
+                    />
+                    <button type="button" id="btn-clear-search" class="btn-icon" title="Effacer">✕</button>
+                  </div>
+
+                  <div class="operator-toolbar" aria-label="Opérateurs WOL">
+                    <span class="operator-toolbar-label">Opérateurs WOL :</span>
+                    <button type="button" class="op-btn" data-op=" &amp; "><code>&amp;</code> <span>ET</span></button>
+                    <button type="button" class="op-btn" data-op=" | "><code>|</code> <span>OU</span></button>
+                    <button type="button" class="op-btn" data-op=" !"><code>!</code> <span>SAUF</span></button>
+                    <button type="button" class="op-btn" data-op-wrap="&quot;"><code>&quot;…&quot;</code> <span>Exact</span></button>
+                    <button type="button" class="op-btn" data-op="*"><code>*</code> <span>Joker</span></button>
+                    <button type="button" class="op-btn" data-op-wrap="()"><code>(…)</code> <span>Groupe</span></button>
+                    <button type="button" class="op-btn" data-op="#"><code>#</code> <span>Titres</span></button>
+                  </div>
+
+                  <div class="query-explainer-box">
+                    <div class="explainer-title">Analyse de la requête :</div>
+                    <div id="query-explainer-text" class="explainer-content">
+                      Saisissez un terme ou sélectionnez un modèle expert à droite.
+                    </div>
+                  </div>
+
+                  <details class="adv-filters-details">
+                    <summary>⚙️ Filtres avancés WOL &amp; Tri</summary>
+                    <div class="search-filters-grid" style="margin-top:0.65rem;">
+                      <div class="form-group">
+                        <label for="filter-scope">Catégorie</label>
+                        <select id="filter-scope" class="select-input">
+                          <option value="all">Tout (Vidéos, Pubs, Bible, Audio, Index)</option>
+                          <option value="videos">Vidéos &amp; Sous-titres</option>
+                          <option value="publications">Publications</option>
+                          <option value="bible">Bible d'étude (nwtsty)</option>
+                          <option value="audio">Audio &amp; Cantiques</option>
+                          <option value="indexes">Index &amp; Guide de recherche</option>
+                          <option value="it">Étude perspicace (WOL)</option>
+                          <option value="qreaders">Questions des lecteurs (WOL)</option>
+                          <option value="biographies">Biographies (WOL)</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label for="filter-engine">Moteur</label>
+                        <select id="filter-engine" class="select-input">
+                          <option value="auto">Auto (JW.org API + WOL si opérateurs)</option>
+                          <option value="jw">JW.org Complet</option>
+                          <option value="wol">WOL Booléen Strict</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label for="filter-proximity">Proximité WOL</label>
+                        <select id="filter-proximity" class="select-input">
+                          <option value="par">Même paragraphe (par)</option>
+                          <option value="sen">Même phrase (sen)</option>
+                          <option value="doc">Même document (doc)</option>
+                        </select>
+                      </div>
+                      <div class="form-group">
+                        <label for="filter-sort">Tri WOL</label>
+                        <select id="filter-sort" class="select-input">
+                          <option value="occ">Pertinence (occ)</option>
+                          <option value="newest">Plus récent</option>
+                          <option value="oldest">Plus ancien</option>
+                        </select>
+                      </div>
+                    </div>
+                  </details>
+
+                  <div class="search-action-bar">
+                    <button type="submit" id="btn-search-live" class="btn-primary">Rechercher</button>
+                    <button type="button" id="btn-save-query" class="btn-secondary">⭐ Sauvegarder</button>
+                    <button type="button" id="btn-launch-wol" class="btn-ghost">WOL ↗</button>
+                    <button type="button" id="btn-launch-jw" class="btn-ghost">JW.org ↗</button>
+                  </div>
+                </form>
+
+                <div id="live-search-results-panel" class="live-results-panel">
+                  <div class="live-results-header">
+                    <h3 id="live-results-title">Résultats</h3>
+                    <span id="live-results-status" class="badge badge-subtle">Prêt</span>
+                  </div>
+                  <div id="live-results-container" class="live-results-container">
+                    <div class="empty-state">
+                      <div class="empty-icon">🔍</div>
+                      <p>Saisissez un terme pour rechercher instantanément dans tout JW.org et WOL.jw.org.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="search-sidebar-stack">
+                <div class="card">
+                  <div class="card-header">
+                    <div>
+                      <span class="badge badge-amber">Raccourcis</span>
+                      <h3 class="card-title">Modèles WOL</h3>
+                    </div>
+                  </div>
+                  <div class="preset-list">
+                    <button type="button" class="preset-item" data-preset-q="#&quot;Questions des lecteurs&quot; &amp; " data-preset-p="doc" data-preset-r="newest">
+                      <strong>Questions des lecteurs sur…</strong>
+                      <span>Cible la rubrique officielle sur WOL</span>
+                    </button>
+                    <button type="button" class="preset-item" data-preset-q="(&quot;mot hébreu&quot; | &quot;mot grec&quot; | &quot;signifie littéralement&quot;) &amp; " data-preset-p="par" data-preset-r="occ">
+                      <strong>Étymologie Hébreu / Grec</strong>
+                      <span>Sens littéral et racines bibliques</span>
+                    </button>
+                    <button type="button" class="preset-item" data-preset-q="(archéolog* | inscription* | manuscrit*) &amp; Bible" data-preset-p="par" data-preset-r="occ">
+                      <strong>Archéologie Biblique</strong>
+                      <span>Découvertes confirmant les Écritures</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="card-header">
+                    <div>
+                      <span class="badge badge-blue">Historique</span>
+                      <h3 class="card-title">Recherches sauvegardées</h3>
+                    </div>
+                    <button type="button" id="btn-clear-history" class="btn-ghost btn-xs">Vider</button>
+                  </div>
+                  <div id="saved-searches-container" class="saved-searches-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
       <!-- ==========================================================
-           ONGLET 5 : LECTEUR DE PUBLICATIONS
+           ONGLET 4 : RÉUNIONS & LECTEUR DE PUBLICATIONS (Captures 3, 4, 5, 6, 7)
            ========================================================== -->
-      <section id="tab-reader" class="tab-panel" aria-labelledby="heading-reader">
-        <div class="section-header">
-          <div>
-            <span class="badge badge-blue">Bibliothèque en ligne intégrée</span>
-            <h1 id="heading-reader">Lecteur de publications</h1>
-            <p class="section-subtitle">
-              Consultez les articles complets avec audio MP3 officiel ou synthèse vocale, bascule FR ↔ EN et aperçu instantané de chaque verset cité.
-            </p>
-          </div>
-        </div>
+      <section id="tab-meetings" class="tab-panel" aria-labelledby="meetings-top-title">
+        <!-- Vue Programme / Lecteur d'article -->
+        <div id="meetings-view-content" class="card reader-shell-card jwl-meetings-shell">
+          <!-- En-tête Programme Réunions (Capture 3) -->
+          <div id="meetings-topbar-week">
+            <div class="bible-jwl-topbar">
+              <div class="bible-jwl-top-left">
+                <div>
+                  <h1 id="meetings-top-title" class="bible-jwl-title">Réunions</h1>
+                  <div id="meetings-week-lang-sub" class="bible-jwl-subtitle">Français</div>
+                </div>
+              </div>
+              <div class="bible-jwl-top-actions">
+                <button type="button" id="btn-week-see-media" class="bible-jwl-iconbtn" title="Voir les médias de la semaine">
+                  <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="currentColor" d="m10 9 5 3-5 3z"/></svg>
+                </button>
+                <button type="button" id="btn-meetings-lang-top" class="bible-jwl-iconbtn" title="Basculer FR / EN">
+                  <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 14l2.5-6L12 14m-4.2-1.8h3.4M14 9h4m-2 0v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </button>
+                <button type="button" id="btn-meetings-history-top" class="bible-jwl-iconbtn" title="Récemment consultés">
+                  <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M3 12a9 9 0 1 0 3-6.7L3 8m0-5v5h5m4-1v5l3 2"/></svg>
+                </button>
+              </div>
+            </div>
 
-        <div class="card reader-shell-card">
+            <div class="jwl-week-switcher">
+              <button type="button" id="btn-week-prev" class="jwl-week-arrow" title="Semaine précédente">‹</button>
+              <button type="button" id="btn-week-today" class="jwl-week-label-btn" title="Revenir à cette semaine">
+                <span id="meetings-week-label">Cette semaine</span>
+              </button>
+              <button type="button" id="btn-week-next" class="jwl-week-arrow" title="Semaine suivante">›</button>
+            </div>
+          </div>
+
+          <!-- En-tête Article Ouvert (Captures 4 & 7) -->
+          <div id="meetings-topbar-reader" class="hidden">
+            <div class="bible-jwl-topbar">
+              <div class="bible-jwl-top-left" style="min-width:0;flex:1;">
+                <button type="button" id="btn-meetings-reader-back" class="bible-jwl-back" title="Retour" aria-label="Retour">
+                  <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+                </button>
+                <div style="min-width:0;">
+                  <div id="meetings-reader-top-title" class="jwl-reader-top-title">Article</div>
+                  <div id="meetings-reader-top-sub" class="jwl-reader-top-sub">WOL.jw.org</div>
+                </div>
+              </div>
+              <div class="bible-jwl-top-actions">
+                <button type="button" id="btn-reader-top-audio" class="bible-jwl-iconbtn" title="Écouter (MP3 / TTS)">
+                  <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 14v-2a8 8 0 0 1 16 0v2M4 14a2 2 0 0 0 2 2h1v-5H6a2 2 0 0 0-2 2zm16 0a2 2 0 0 1-2 2h-1v-5h1a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <button type="button" id="btn-reader-top-media" class="bible-jwl-iconbtn" title="Voir les médias">
+                  <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="currentColor" d="m10 9 5 3-5 3z"/></svg>
+                </button>
+                <button type="button" id="btn-reader-top-search" class="bible-jwl-iconbtn" title="Rechercher">
+                  <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                </button>
+                <button type="button" id="btn-reader-top-more" class="bible-jwl-iconbtn" title="Options (PDF, IA, Hors-ligne)">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="18.5" r="1.5" fill="currentColor"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="reader-toolbar">
             <div class="btn-group">
               <button type="button" id="reader-btn-back" class="btn-icon" title="Précédent" disabled>◀</button>
               <button type="button" id="reader-btn-fwd" class="btn-icon" title="Suivant" disabled>▶</button>
-              <button type="button" id="reader-btn-switch-lang" class="btn-secondary btn-sm">🌍 FR ↔ EN</button>
+              <button type="button" id="reader-btn-switch-lang" class="btn-secondary btn-xs">🌍 FR↔EN</button>
               <button type="button" id="reader-btn-font-minus" class="btn-icon" title="Réduire">A-</button>
               <button type="button" id="reader-btn-font-plus" class="btn-icon" title="Agrandir">A+</button>
+              <button type="button" id="reader-btn-img-descs" class="btn-secondary btn-xs hidden">🖼️ Alt</button>
+              <button type="button" id="reader-btn-mp3" class="btn-primary btn-xs hidden">🎧 MP3</button>
+              <button type="button" id="reader-btn-mp3-dl" class="btn-secondary btn-xs hidden" title="Télécharger le MP3">⬇️</button>
+              <button type="button" id="reader-btn-ai" class="btn-ai-chip">✨ IA 1-clic</button>
+              <button type="button" id="reader-btn-pdf" class="btn-secondary btn-xs">📄 PDF</button>
             </div>
-            <div class="btn-group">
-              <button type="button" id="reader-btn-img-descs" class="btn-secondary btn-sm hidden" title="Afficher/masquer les descriptions d'images">🖼️ Descriptions</button>
-              <button type="button" id="reader-btn-mp3" class="btn-primary btn-sm hidden">🎧 Audio MP3</button>
-              <button type="button" id="reader-btn-tts" class="btn-secondary btn-sm">🗣️ Écouter (TTS)</button>
-              <button type="button" id="reader-btn-to-notes" class="btn-secondary btn-sm">📝 Annoter</button>
-              <a id="reader-btn-external" href="https://wol.jw.org" data-allow-external="1" target="_blank" rel="noopener" class="btn-ghost btn-xs">Site officiel ↗</a>
-            </div>
-          </div>
-
-          <div class="reader-quick-strip">
-            <button type="button" class="chip-btn" id="rq-meetings">📅 Réunion de la semaine</button>
-            <button type="button" class="chip-btn" data-goto-tab="videos">🎬 Vidéos &amp; Sous-titres</button>
-            <button type="button" class="chip-btn" id="rq-dailytext">🗓️ Texte du jour</button>
-            <button type="button" class="chip-btn" id="rq-insight">🏛️ Étude perspicace</button>
-            <button type="button" class="chip-btn" id="rq-rsg">🧭 Guide de recherche</button>
-            <button type="button" class="chip-btn" id="rq-dx">🗂️ Index des publications</button>
           </div>
 
           <div class="reader-article-header">
             <h2 id="reader-article-title">Sélectionnez un article ou une publication</h2>
-            <span id="reader-article-meta" class="badge badge-subtle">Lecteur DFWol prêt</span>
+            <span id="reader-article-meta" class="badge badge-subtle">Lecteur DFWol</span>
           </div>
 
           <article id="reader-article-body" class="reader-article-body">
             <div class="empty-state">
               <div class="empty-icon">📚</div>
-              <p>Cliquez sur un accès rapide ci-dessus (par exemple <em>Réunion de la semaine</em>) ou sur n'importe quel résultat de recherche.</p>
+              <p>Cliquez sur <em>Réunion de la semaine</em> ou sur n'importe quel résultat de la Bibliothèque.</p>
             </div>
           </article>
+
+          <!-- Bouton flottant violet 💎 Study Gem (Captures 4 & 7) -->
+          <button type="button" id="btn-reader-gem-fab" class="jwl-gem-fab hidden" title="Perles d'étude, Versets, PDF & IA 1-clic" aria-label="Panneau d'étude">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3zm1.1 2l-2.1 3h4.3L8.2 5zm3.3 0L9.2 8h5.6l-1.4-3h-2.8zm4.8 0l-1.3 3h4.3l-2.1-3h-.9zm-9.6 5l4.9 6.8L8.4 10H5.8zm4.2 0l2 7.5 2-7.5H10zm5.6 0l-2.3 6.8L18.2 10h-2.6z"/></svg>
+          </button>
+        </div>
+
+        <!-- Vue « Voir les médias » (Capture 5) -->
+        <div id="meetings-view-media" class="card bible-jwl-shell hidden">
+          <div class="bible-jwl-topbar">
+            <div class="bible-jwl-top-left">
+              <button type="button" id="btn-meetings-media-back" class="bible-jwl-back" title="Retour" aria-label="Retour">
+                <svg viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+              </button>
+              <div>
+                <h1 class="bible-jwl-title">Voir les médias</h1>
+                <div id="meetings-media-subtitle" class="bible-jwl-subtitle">Vie et ministère</div>
+              </div>
+            </div>
+          </div>
+          <div id="meetings-media-content" class="jwl-media-view-body"></div>
         </div>
       </section>
 
       <!-- ==========================================================
-           ONGLET 6 : PARAMÈTRES, EXPORT DE DONNÉES, WIDGET & NOTES
+           ONGLET 5 : ÉTUDE INDIVIDUELLE (Notes, Surlignages, Assistant IA, Lecture, Paramètres)
            ========================================================== -->
-      <section id="tab-settings" class="tab-panel" aria-labelledby="heading-settings">
-        <div class="section-header">
-          <div>
-            <span class="badge badge-blue">Préférences • Sauvegarde • Widget • Étude</span>
-            <h1 id="heading-settings">Paramètres &amp; Données</h1>
+      <section id="tab-study" class="tab-panel" aria-labelledby="study-top-title">
+        <div class="card bible-jwl-shell" style="margin-bottom:1.15rem;">
+          <div class="bible-jwl-topbar">
+            <div class="bible-jwl-top-left">
+              <div>
+                <h1 id="study-top-title" class="bible-jwl-title">Étude individuelle</h1>
+                <div class="bible-jwl-subtitle">Notes • Assistant IA • Lecture • Paramètres</div>
+              </div>
+            </div>
           </div>
-          <div class="header-actions-row">
-            <button type="button" id="btn-export-data" class="btn-primary btn-sm">💾 Exporter tout (.JSON)</button>
-            <button type="button" id="btn-export-txt" class="btn-secondary btn-sm">📝 Exporter Notes (.TXT)</button>
-            <label for="input-import-data" class="btn-ghost btn-sm cursor-pointer">📂 Importer (.JSON)</label>
-            <input type="file" id="input-import-data" accept=".json" class="hidden" />
+
+          <div class="bible-jwl-subtabs" role="tablist">
+            <button type="button" class="bible-subtab active" data-study-subtab="notes">NOTES &amp; SURLIGNAGES</button>
+            <button type="button" class="bible-subtab" data-study-subtab="ai">ASSISTANT IA</button>
+            <button type="button" class="bible-subtab" data-study-subtab="reading">LECTURE</button>
+            <button type="button" class="bible-subtab" data-study-subtab="settings">WIDGET &amp; PARAMÈTRES</button>
           </div>
         </div>
 
-        <!-- Carte Préférences & Sauvegarde -->
-        <div class="settings-top-grid">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="badge badge-blue">Apparence &amp; Synthèse Vocale</span>
-                <h2 class="card-title">Préférences générales</h2>
-              </div>
-            </div>
-            <div class="search-filters-grid">
-              <div class="form-group">
-                <label for="settings-theme-select">Thème</label>
-                <select id="settings-theme-select" class="select-input">
-                  <option value="light">Clair (JW Library / JW.org)</option>
-                  <option value="dark">Sombre</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="settings-lang-select">Langue d'étude</label>
-                <select id="settings-lang-select" class="select-input">
-                  <option value="fr">Français</option>
-                  <option value="en">English</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-group" style="margin-bottom:0.75rem;">
-              <label for="settings-voice-select">Voix TTS neuronale par défaut</label>
-              <select id="settings-voice-select" class="select-input"></select>
-            </div>
-            <label class="checkbox-inline">
-              <input type="checkbox" id="settings-tts-skip-refs" checked />
-              <span>Ignorer les versets entre parenthèses et cotes (<code>w24...</code>) pendant la lecture vocale</span>
-            </label>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="badge badge-emerald">Portabilité &amp; Sauvegarde complète</span>
-                <h2 class="card-title">Vos données sauvegardées</h2>
-              </div>
-            </div>
-            <div class="settings-stats-grid">
-              <div class="settings-stat-pill"><strong id="settings-stats-notes">0</strong><span>Notes</span></div>
-              <div class="settings-stat-pill"><strong id="settings-stats-answers">0</strong><span>Réponses cahiers</span></div>
-              <div class="settings-stat-pill"><strong id="settings-stats-chapters">0 / 1189</strong><span>Chapitres lus</span></div>
-              <div class="settings-stat-pill"><strong id="settings-stats-searches">0</strong><span>Favoris</span></div>
-            </div>
-            <p class="card-helper-text" style="margin-top:0.75rem;">
-              L'export JSON inclut vos notes, toutes vos réponses saisies dans les cahiers/Tour de Garde, votre suivi des 1 189 chapitres, vos recherches sauvegardées et vos préférences.
-            </p>
-          </div>
-        </div>
-
-        <div class="widget-studio-grid mt-lg">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="badge badge-blue">Écran d'accueil Android / iOS / PWA</span>
-                <h2 class="card-title">Aperçu du Widget</h2>
-              </div>
-              <div class="widget-size-pills">
-                <button type="button" class="pill-btn" data-wsize="size-2x2">2×2</button>
-                <button type="button" class="pill-btn" data-wsize="size-4x2">4×2</button>
-                <button type="button" class="pill-btn active" data-wsize="size-4x3">4×3</button>
-              </div>
-            </div>
-
-            <div class="homescreen-stage">
-              <div id="studio-widget-preview" class="widget-preview-card size-4x3 theme-jw-light">
-                <div class="widget-card-header">
-                  <div class="widget-brand">
-                    <span id="wprev-one-word" class="badge badge-blue">CONFIANCE</span>
-                    <span class="widget-source-label">TEXTE DU JOUR</span>
-                  </div>
-                  <span id="wprev-date" class="widget-date-pill">Aujourd'hui</span>
-                </div>
-                <blockquote id="wprev-scripture" class="widget-scripture-text">Chargement…</blockquote>
-                <div id="wprev-ref" class="widget-scripture-ref">—</div>
-                <div id="wprev-commentary" class="widget-commentary-text">Chargement…</div>
-                <div class="widget-card-footer">
-                  <span class="widget-footer-brand">DFWol • FR &amp; EN</span>
-                  <span class="widget-open-hint">Ouvrir ↗</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="widget-export-bar">
-              <button type="button" id="btn-download-widget-png" class="btn-primary btn-sm">🖼️ Télécharger Image (.PNG)</button>
-              <button type="button" id="btn-open-mini-widget" class="btn-secondary btn-sm">🪟 Mini-Widget</button>
-              <button type="button" id="btn-force-cap-sync" class="btn-secondary btn-sm">🔄 Synchro Capacitor</button>
-            </div>
-            <canvas id="widget-export-canvas" width="1080" height="1080" class="hidden"></canvas>
-          </div>
-
-          <div class="widget-settings-stack">
+        <!-- Sous-vue 1 : NOTES & SURLIGNAGES -->
+        <div id="study-view-notes" class="study-subview">
+          <div class="notes-workspace-grid">
             <div class="card">
               <div class="card-header">
                 <div>
-                  <span class="badge badge-blue">Personnalisation</span>
-                  <h2 class="card-title">Réglages du Widget</h2>
+                  <span class="badge badge-blue">Liens bibliques cliquables (multi-verset inclus)</span>
+                  <h2 class="card-title">Carnet de notes</h2>
                 </div>
               </div>
-
-              <div class="form-group">
-                <label for="widget-display-mode">Contenu affiché</label>
-                <select id="widget-display-mode" class="select-input">
-                  <option value="oneWord">1 Mot (Verset + Mot-clé)</option>
-                  <option value="oneSentence">1 Phrase (Verset + Idée clé)</option>
-                  <option value="shortParagraph" selected>Petit Paragraphe (Recommandé)</option>
-                  <option value="full">Texte du jour complet</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="widget-theme-select">Apparence du Widget</label>
-                <select id="widget-theme-select" class="select-input">
-                  <option value="theme-jw-light">JW.org Classique (Blanc &amp; Bleu #4a6da7)</option>
-                  <option value="theme-jw-blue">Bleu JW.org (#4a6da7)</option>
-                  <option value="theme-jw-dark">JW.org Sombre (#121212)</option>
-                  <option value="theme-parchment">Parchemin Lecture</option>
-                </select>
-              </div>
-
-              <div class="form-group">
-                <label for="widget-font-scale">Taille de police</label>
-                <input type="range" id="widget-font-scale" min="85" max="125" value="100" class="range-input" />
-              </div>
-
-              <div class="code-status-box">
-                <div class="code-status-line">
-                  <span>Synchro Capacitor :</span>
-                  <code id="cap-last-sync-time">Prêt</code>
+              <form id="note-editor-form" class="note-form">
+                <div class="note-form-top">
+                  <input type="text" id="note-title-input" class="text-input" placeholder="Titre de la note…" required />
+                  <select id="note-tag-select" class="select-input">
+                    <option value="Étude Perso">Étude Perso</option>
+                    <option value="Réunion">Réunion</option>
+                    <option value="Prédication">Prédication</option>
+                    <option value="Texte du Jour">Texte du Jour</option>
+                  </select>
                 </div>
-              </div>
+                <textarea id="note-body-input" class="textarea-input" rows="4" placeholder="Vos notes… Tout verset (ex : Ps 83:15-18, Jean 17:3) s'ouvrira dans l'app." required></textarea>
+                <div class="note-form-actions">
+                  <button type="submit" class="btn-primary btn-sm">Enregistrer</button>
+                  <input type="search" id="notes-filter-input" class="text-input input-sm" placeholder="Filtrer…" />
+                </div>
+              </form>
+              <div id="notes-list-container" class="notes-list-container"></div>
             </div>
 
             <div class="card">
               <div class="card-header">
                 <div>
-                  <span class="badge badge-emerald">Connectivité WOL</span>
-                  <h2 class="card-title">Proxy WOL (PWA distante)</h2>
+                  <span class="badge badge-amber">Surlignages JW Library</span>
+                  <h2 class="card-title">Passages surlignés</h2>
+                </div>
+              </div>
+              <div id="highlights-list-container" class="notes-list-container"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sous-vue 2 : ASSISTANT IA 1-CLIC & CLÉ API -->
+        <div id="study-view-ai" class="study-subview hidden">
+          <div class="settings-top-grid">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-blue">Préparation Automatique 1-Clic</span>
+                  <h2 class="card-title">Studio Assistant IA</h2>
                 </div>
               </div>
               <p class="card-helper-text">
-                En local, <code>Lancer-DFWol.bat</code> fournit déjà le proxy. Sur GitHub Pages, vous pouvez indiquer votre Cloudflare Worker (optionnel).
+                Formulez une question et/ou entrez un ou plusieurs versets (<code>Livre xx:xx-xx</code>) : DFWol rassemble automatiquement les versets complets, les notes d'étude et les articles du Guide de recherche en 1 clic.
               </p>
-              <div class="quick-verse-bar">
-                <input type="url" id="custom-proxy-input" class="text-input" placeholder="https://mon-worker.workers.dev/?url=" />
-                <button type="button" id="btn-save-proxy" class="btn-secondary btn-sm">Enregistrer</button>
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label for="studio-ai-question">Question formulée</label>
+                <textarea id="studio-ai-question" class="textarea-input" rows="3" placeholder="Ex : Comment expliquer le nom divin et la confiance en Jéhovah à partir de ces versets ?"></textarea>
               </div>
-              <details class="proxy-guide-details">
-                <summary>⚡ Comment éviter toute limite sur GitHub Pages (Cloudflare Worker gratuit)</summary>
-                <p class="card-helper-text" style="margin-top:0.5rem;">
-                  Les proxies publics partagés limitent parfois après plusieurs articles. Créez gratuitement un Worker sur <code>workers.cloudflare.com</code> en collant le fichier <code>cloudflare-worker/proxy-worker.js</code> du dépôt, puis collez son URL ci-dessus.
-                </p>
-              </details>
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label for="studio-ai-refs">Verset(s) / Plage(s) biblique(s)</label>
+                <input type="text" id="studio-ai-refs" class="text-input" placeholder="Ex : Psaume 83:15-18 ; Proverbes 3:5, 6 ; 1 Cor 13:4-8" />
+              </div>
+              <label class="checkbox-inline" style="margin-bottom:0.9rem;">
+                <input type="checkbox" id="studio-ai-include-rsg" checked />
+                <span>Extraire automatiquement les articles du Guide de recherche liés</span>
+              </label>
+              <button type="button" id="btn-studio-ai-prepare" class="btn-primary">✨ Préparer &amp; Répondre (1 clic)</button>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-emerald">BYOK — Stockée uniquement dans votre navigateur</span>
+                  <h2 class="card-title">Clé API &amp; Modèle IA</h2>
+                </div>
+              </div>
+              <div class="search-filters-grid">
+                <div class="form-group">
+                  <label for="ai-provider-select">Fournisseur IA</label>
+                  <select id="ai-provider-select" class="select-input">
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI (GPT)</option>
+                    <option value="openrouter">OpenRouter</option>
+                    <option value="groq">Groq</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="custom">Endpoint compatible OpenAI</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ai-model-input">Modèle</label>
+                  <input type="text" id="ai-model-input" class="text-input" list="ai-model-suggestions" placeholder="gemini-2.5-flash" />
+                  <datalist id="ai-model-suggestions"></datalist>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label for="ai-apikey-input">Votre clé API</label>
+                <div class="quick-verse-bar" style="margin-bottom:0;">
+                  <input type="password" id="ai-apikey-input" class="text-input" placeholder="Collez votre clé API…" autocomplete="off" />
+                  <button type="button" id="btn-ai-toggle-key-vis" class="btn-icon" title="Afficher/Masquer">👁️</button>
+                </div>
+              </div>
+
+              <div id="ai-endpoint-wrap" class="form-group hidden" style="margin-bottom:0.75rem;">
+                <label for="ai-endpoint-input">URL Endpoint (OpenAI-compatible)</label>
+                <input type="url" id="ai-endpoint-input" class="text-input" placeholder="https://api.mistral.ai/v1/chat/completions" />
+              </div>
+
+              <div class="search-filters-grid">
+                <div class="form-group">
+                  <label for="ai-style-select">Style de réponse par défaut</label>
+                  <select id="ai-style-select" class="select-input">
+                    <option value="meeting_short">Commentaire réunion (30s)</option>
+                    <option value="deep_study">Étude biblique approfondie</option>
+                    <option value="gems_bullets">Perles spirituelles (Puces)</option>
+                    <option value="custom">Libre</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ai-max-rsg-input">Articles Guide de recherche max</label>
+                  <input type="number" id="ai-max-rsg-input" class="text-input" min="0" max="8" value="4" />
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label for="ai-system-prompt-input">Consigne système personnalisée (optionnel)</label>
+                <textarea id="ai-system-prompt-input" class="textarea-input" rows="2" placeholder="Laisser vide pour les instructions bibliques par défaut…"></textarea>
+              </div>
+
+              <label class="checkbox-inline" style="margin-bottom:0.85rem;">
+                <input type="checkbox" id="ai-autorun-checkbox" checked />
+                <span>Lancer automatiquement la génération lors d'un clic sur « ✨ IA »</span>
+              </label>
+
+              <div class="btn-group">
+                <button type="button" id="btn-ai-save-config" class="btn-primary btn-sm">💾 Enregistrer la clé</button>
+                <button type="button" id="btn-ai-test-key" class="btn-secondary btn-sm">🧪 Tester la connexion</button>
+              </div>
+              <p id="ai-key-status" class="card-helper-text" style="margin-top:0.6rem;"></p>
             </div>
           </div>
         </div>
 
-        <div class="notes-workspace-grid mt-lg">
-          <div class="card">
-            <div class="card-header">
-              <div>
-                <span class="badge badge-blue">Liens bibliques cliquables dans l'app</span>
-                <h2 class="card-title">Carnet de notes</h2>
-              </div>
-            </div>
-            <form id="note-editor-form" class="note-form">
-              <div class="note-form-top">
-                <input type="text" id="note-title-input" class="text-input" placeholder="Titre de la note…" required />
-                <select id="note-tag-select" class="select-input">
-                  <option value="Étude Perso">Étude Perso</option>
-                  <option value="Réunion">Réunion</option>
-                  <option value="Prédication">Prédication</option>
-                  <option value="Texte du Jour">Texte du Jour</option>
-                </select>
-              </div>
-              <textarea id="note-body-input" class="textarea-input" rows="4" placeholder="Vos notes… Tout verset (ex : Ps 83:18, Jean 17:3) s'ouvrira dans l'app." required></textarea>
-              <div class="note-form-actions">
-                <button type="submit" class="btn-primary btn-sm">Enregistrer</button>
-                <input type="search" id="notes-filter-input" class="text-input input-sm" placeholder="Filtrer…" />
-              </div>
-            </form>
-            <div id="notes-list-container" class="notes-list-container"></div>
-          </div>
-
+        <!-- Sous-vue 3 : SUIVI DE LECTURE (1 189 Chapitres) -->
+        <div id="study-view-reading" class="study-subview hidden">
           <div class="card">
             <div class="card-header">
               <div>
@@ -973,6 +993,175 @@
             <div id="reading-chapters-grid" class="reading-chapters-grid"></div>
           </div>
         </div>
+
+        <!-- Sous-vue 4 : WIDGET & PARAMÈTRES -->
+        <div id="study-view-settings" class="study-subview hidden">
+          <div class="settings-top-grid">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-blue">Apparence &amp; Synthèse Vocale</span>
+                  <h2 class="card-title">Préférences générales</h2>
+                </div>
+              </div>
+              <div class="search-filters-grid">
+                <div class="form-group">
+                  <label for="settings-theme-select">Thème</label>
+                  <select id="settings-theme-select" class="select-input">
+                    <option value="light">Clair (JW Library / JW.org)</option>
+                    <option value="dark">Sombre</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="settings-lang-select">Langue d'étude</label>
+                  <select id="settings-lang-select" class="select-input">
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:0.75rem;">
+                <label for="settings-voice-select">Voix TTS neuronale par défaut</label>
+                <select id="settings-voice-select" class="select-input"></select>
+              </div>
+              <label class="checkbox-inline">
+                <input type="checkbox" id="settings-tts-skip-refs" checked />
+                <span>Ignorer les versets entre parenthèses et cotes (<code>w24...</code>) pendant la lecture vocale</span>
+              </label>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-emerald">Portabilité &amp; Sauvegarde complète</span>
+                  <h2 class="card-title">Vos données sauvegardées</h2>
+                </div>
+              </div>
+              <div class="settings-stats-grid">
+                <div class="settings-stat-pill"><strong id="settings-stats-notes">0</strong><span>Notes</span></div>
+                <div class="settings-stat-pill"><strong id="settings-stats-answers">0</strong><span>Réponses cahiers</span></div>
+                <div class="settings-stat-pill"><strong id="settings-stats-chapters">0 / 1189</strong><span>Chapitres lus</span></div>
+                <div class="settings-stat-pill"><strong id="settings-stats-searches">0</strong><span>Favoris</span></div>
+              </div>
+              <p class="card-helper-text" style="margin-top:0.75rem;">
+                L'export JSON sauvegarde vos notes, surlignages, réponses cahiers, chapitres lus et favoris (votre clé API reste privée et n'est pas exportée).
+              </p>
+              <div class="btn-group" style="margin-top:0.75rem;">
+                <button type="button" id="btn-export-data" class="btn-primary btn-sm">💾 Export (.JSON)</button>
+                <button type="button" id="btn-export-txt" class="btn-secondary btn-sm">📝 Export (.TXT)</button>
+                <label for="input-import-data" class="btn-secondary btn-sm cursor-pointer">📂 Importer (.JSON)</label>
+                <input type="file" id="input-import-data" accept=".json" class="hidden" />
+              </div>
+            </div>
+          </div>
+
+          <div class="widget-studio-grid mt-lg">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-blue">Écran d'accueil Android / iOS / PWA</span>
+                  <h2 class="card-title">Aperçu du Widget</h2>
+                </div>
+                <div class="widget-size-pills">
+                  <button type="button" class="pill-btn" data-wsize="size-2x2">2×2</button>
+                  <button type="button" class="pill-btn" data-wsize="size-4x2">4×2</button>
+                  <button type="button" class="pill-btn active" data-wsize="size-4x3">4×3</button>
+                </div>
+              </div>
+
+              <div class="homescreen-stage">
+                <div id="studio-widget-preview" class="widget-preview-card size-4x3 theme-jw-light">
+                  <div class="widget-card-header">
+                    <div class="widget-brand">
+                      <span id="wprev-one-word" class="badge badge-blue">CONFIANCE</span>
+                      <span class="widget-source-label">TEXTE DU JOUR</span>
+                    </div>
+                    <span id="wprev-date" class="widget-date-pill">Aujourd'hui</span>
+                  </div>
+                  <blockquote id="wprev-scripture" class="widget-scripture-text">Chargement…</blockquote>
+                  <div id="wprev-ref" class="widget-scripture-ref">—</div>
+                  <div id="wprev-commentary" class="widget-commentary-text">Chargement…</div>
+                  <div class="widget-card-footer">
+                    <span class="widget-footer-brand">DFWol • FR &amp; EN</span>
+                    <span class="widget-open-hint">Ouvrir ↗</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="widget-export-bar">
+                <button type="button" id="btn-download-widget-png" class="btn-primary btn-sm">🖼️ Image (.PNG)</button>
+                <button type="button" id="btn-open-mini-widget" class="btn-secondary btn-sm">🪟 Mini-Widget</button>
+                <button type="button" id="btn-force-cap-sync" class="btn-secondary btn-sm">🔄 Synchro Capacitor</button>
+              </div>
+              <canvas id="widget-export-canvas" width="1080" height="1080" class="hidden"></canvas>
+            </div>
+
+            <div class="widget-settings-stack">
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <span class="badge badge-blue">Personnalisation</span>
+                    <h2 class="card-title">Réglages du Widget</h2>
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="widget-display-mode">Contenu affiché</label>
+                  <select id="widget-display-mode" class="select-input">
+                    <option value="oneWord">1 Mot (Verset + Mot-clé)</option>
+                    <option value="oneSentence">1 Phrase (Verset + Idée clé)</option>
+                    <option value="shortParagraph" selected>Petit Paragraphe (Recommandé)</option>
+                    <option value="full">Texte du jour complet</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="widget-theme-select">Apparence du Widget</label>
+                  <select id="widget-theme-select" class="select-input">
+                    <option value="theme-jw-light">JW.org Classique (Blanc &amp; Bleu #4a6da7)</option>
+                    <option value="theme-jw-blue">Bleu JW.org (#4a6da7)</option>
+                    <option value="theme-jw-dark">JW.org Sombre (#121212)</option>
+                    <option value="theme-parchment">Parchemin Lecture</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="widget-font-scale">Taille de police</label>
+                  <input type="range" id="widget-font-scale" min="85" max="125" value="100" class="range-input" />
+                </div>
+
+                <div class="code-status-box">
+                  <div class="code-status-line">
+                    <span>Synchro Capacitor :</span>
+                    <code id="cap-last-sync-time">Prêt</code>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="card-header">
+                  <div>
+                    <span class="badge badge-emerald">Connectivité WOL</span>
+                    <h2 class="card-title">Proxy WOL (PWA distante)</h2>
+                  </div>
+                </div>
+                <p class="card-helper-text">
+                  En local, <code>Lancer-DFWol.bat</code> fournit déjà le proxy. Sur GitHub Pages, vous pouvez indiquer votre Cloudflare Worker (optionnel).
+                </p>
+                <div class="quick-verse-bar">
+                  <input type="url" id="custom-proxy-input" class="text-input" placeholder="https://mon-worker.workers.dev/?url=" />
+                  <button type="button" id="btn-save-proxy" class="btn-secondary btn-sm">Enregistrer</button>
+                </div>
+                <details class="proxy-guide-details">
+                  <summary>⚡ Comment éviter toute limite sur GitHub Pages (Cloudflare Worker gratuit)</summary>
+                  <p class="card-helper-text" style="margin-top:0.5rem;">
+                    Les proxies publics partagés limitent parfois après plusieurs articles. Créez gratuitement un Worker sur <code>workers.cloudflare.com</code> en collant le fichier <code>cloudflare-worker/proxy-worker.js</code> du dépôt, puis collez son URL ci-dessus.
+                  </p>
+                </details>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
     </main>
@@ -981,12 +1170,13 @@
     <footer class="jw-footer">
       <div class="jw-footer-inner">
         <div class="jw-footer-brand">
-          <strong>DFWol.org</strong> — Interface unifiée JW.org &amp; Bibliothèque en ligne (FR / EN)
+          <strong>DFWol.org</strong> — Interface unifiée JW Library × JW.org × WOL (FR / EN)
         </div>
         <div class="jw-footer-links">
-          <button type="button" class="jw-footer-link" data-goto-tab="bible">La Bible</button>
-          <button type="button" class="jw-footer-link" data-goto-tab="videos">Vidéos</button>
-          <button type="button" class="jw-footer-link" data-goto-tab="search">Recherche</button>
+          <button type="button" class="jw-footer-link" data-goto-tab="bible">Bible</button>
+          <button type="button" class="jw-footer-link" data-goto-tab="library">Bibliothèque</button>
+          <button type="button" class="jw-footer-link" data-goto-tab="meetings">Réunions</button>
+          <button type="button" class="jw-footer-link" data-goto-tab="study">Étude individuelle</button>
           <a href="./index.html?mode=widget" class="jw-footer-link">Mode Widget</a>
         </div>
       </div>
@@ -1024,6 +1214,7 @@
 
       <div class="audio-bar-extra">
         <button type="button" id="audio-btn-rate" class="audio-pill-btn" title="Vitesse">1×</button>
+        <button type="button" id="audio-btn-download" class="audio-pill-btn hidden" title="Télécharger le fichier MP3">⬇️ <span>MP3</span></button>
         <button type="button" id="audio-btn-voice-toggle" class="audio-pill-btn" title="Choisir la voix">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 4a3 3 0 0 1 3 3v5a3 3 0 1 1-6 0V7a3 3 0 0 1 3-3zm-6 8a6 6 0 0 0 12 0m-6 6v3"/></svg>
           <span>Voix</span>
@@ -1056,7 +1247,7 @@
     <div id="audio-queue-list" class="audio-queue-list"></div>
   </div>
 
-  <!-- Barre de Navigation Inférieure Mobile (copiée JW Library : Accueil, Bible, Recherche, Réunions, Paramètres) -->
+  <!-- Barre de Navigation Inférieure Mobile (copiée 1:1 JW Library : Accueil, Bible, Bibliothèque, Réunions, Étude individuelle) -->
   <nav class="mobile-bottom-nav" aria-label="Navigation mobile">
     <button type="button" class="mbn-item active" data-tab="dashboard">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
@@ -1066,19 +1257,168 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M2 6.5c3-.8 6.5.2 10 2.5 3.5-2.3 7-3.3 10-2.5v11.5c-3-.8-6.5.2-10 2.5-3.5-2.3-7-3.3-10-2.5zM12 9v11.5"/></svg>
       <small>Bible</small>
     </button>
-    <button type="button" class="mbn-item" data-tab="search">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-      <small>Recherche</small>
+    <button type="button" class="mbn-item" data-tab="library">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 8v10a2 2 0 0 0 2 2h10M11 8.5l4 2.5-4 2.5z"/></svg>
+      <small>Bibliothèque</small>
     </button>
-    <button type="button" class="mbn-item" data-tab="reader">
+    <button type="button" class="mbn-item" data-tab="meetings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 11.5h10l-1 4H8zM9 15.5l-1 5m8-5 1 5"/></svg>
       <small>Réunions</small>
     </button>
-    <button type="button" class="mbn-item" data-tab="settings">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 0 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 0 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 .9-1.5V3a1.9 1.9 0 0 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5.9H21a1.9 1.9 0 0 1 0 3.8h-.2a1.6 1.6 0 0 0-1.4 1z"/></svg>
-      <small>Paramètres</small>
+    <button type="button" class="mbn-item" data-tab="study">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M6 4h12l3.5 5L12 20.5 2.5 9zM2.5 9h19M8.5 4l3.5 16.5L15.5 4"/></svg>
+      <small>Étude individuelle</small>
     </button>
   </nav>
+
+  <!-- Barre flottante de sélection & surlignage (Capture 6) -->
+  <div id="text-selection-toolbar" class="text-selection-toolbar hidden" role="toolbar" aria-label="Actions sur la sélection">
+    <button type="button" class="hl-dot hl-yellow" data-hl-color="yellow" title="Surligner Jaune"></button>
+    <button type="button" class="hl-dot hl-pink" data-hl-color="pink" title="Surligner Rose"></button>
+    <button type="button" class="hl-dot hl-blue" data-hl-color="blue" title="Surligner Bleu"></button>
+    <button type="button" class="hl-dot hl-green" data-hl-color="green" title="Surligner Vert"></button>
+    <span class="sel-tb-sep"></span>
+    <button type="button" class="sel-tb-btn" id="sel-btn-note" title="Ajouter une note">📝</button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-remove-hl" title="Retirer surlignage">🗑️</button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-copy" title="Copier">📋</button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-search" title="Rechercher">🔍</button>
+    <button type="button" class="sel-tb-btn is-ai" id="sel-btn-ai" title="Préparer pour l'IA en 1 clic">✨</button>
+  </div>
+
+  <!-- Tiroir Assistant IA 1-Clic -->
+  <div id="ai-assistant-drawer" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Assistant IA 1-clic">
+    <div class="ai-drawer-modal">
+      <div class="peek-header">
+        <div>
+          <strong id="ai-drawer-title">✨ Assistant IA — Préparation 1-clic</strong>
+          <div id="ai-drawer-stats" class="ai-drawer-stats"></div>
+        </div>
+        <button type="button" id="ai-drawer-close" class="btn-icon-xs">✕</button>
+      </div>
+
+      <div class="ai-drawer-body">
+        <div class="ai-question-bar">
+          <label for="ai-drawer-question-input">Question formulée :</label>
+          <textarea id="ai-drawer-question-input" class="textarea-input" rows="2"></textarea>
+          <div class="ai-style-pills">
+            <button type="button" class="pill-btn active" data-ai-style-pill="meeting_short">Réponse réunion 30s</button>
+            <button type="button" class="pill-btn" data-ai-style-pill="deep_study">Étude approfondie</button>
+            <button type="button" class="pill-btn" data-ai-style-pill="gems_bullets">Perles (Puces)</button>
+          </div>
+        </div>
+
+        <details class="ai-prompt-details">
+          <summary>👁️ Voir tout le contenu préparé (versets complets + articles)</summary>
+          <pre id="ai-drawer-prompt-preview" class="ai-prompt-pre"></pre>
+        </details>
+
+        <div class="ai-drawer-actions">
+          <button type="button" id="btn-ai-copy-prompt" class="btn-secondary btn-sm">📋 Copier le prompt complet (1 clic)</button>
+          <button type="button" id="btn-ai-generate" class="btn-primary btn-sm">✨ Générer la réponse IA</button>
+        </div>
+
+        <div id="ai-drawer-loading" class="loading-box hidden">⏳ Préparation…</div>
+        <div id="ai-drawer-messages" class="ai-drawer-messages"></div>
+
+        <form id="ai-followup-form" class="ai-followup-form">
+          <input type="text" id="ai-followup-input" class="text-input input-sm" placeholder="Affiner ou poser une question de suivi…" />
+          <button type="submit" class="btn-secondary btn-sm">Envoyer</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale Export PDF Publication / Bible -->
+  <div id="pdf-export-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Exporter en PDF">
+    <div class="peek-modal">
+      <div class="peek-header">
+        <div>
+          <h3>📄 Export PDF — <span id="pdf-export-title-label">Publication</span></h3>
+        </div>
+        <button type="button" id="pdf-modal-close" class="btn-icon-xs">✕</button>
+      </div>
+      <div class="peek-body">
+        <div class="pdf-options-list">
+          <label class="checkbox-inline">
+            <input type="checkbox" id="pdf-opt-verses" checked />
+            <span>Inclure le texte complet des versets cités (multi-versets <code>Livre xx:xx-xx</code> inclus)</span>
+          </label>
+          <div class="form-group">
+            <label for="pdf-opt-verses-pos">Placement des versets</label>
+            <select id="pdf-opt-verses-pos" class="select-input">
+              <option value="inline">Encadrés sous chaque paragraphe (recommandé)</option>
+              <option value="appendix">En annexe à la fin du document</option>
+            </select>
+          </div>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="pdf-opt-images" checked />
+            <span>Inclure les images &amp; illustrations</span>
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="pdf-opt-img-descs" />
+            <span>Inclure les descriptions officielles d'images (Alt)</span>
+          </label>
+          <label class="checkbox-inline">
+            <input type="checkbox" id="pdf-opt-notes" checked />
+            <span>Inclure mes réponses saisies &amp; surlignages</span>
+          </label>
+          <div class="search-filters-grid">
+            <div class="form-group">
+              <label for="pdf-opt-format">Format de page</label>
+              <select id="pdf-opt-format" class="select-input">
+                <option value="A4">A4</option>
+                <option value="A5">A5</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="pdf-opt-fontsize">Taille du texte</label>
+              <select id="pdf-opt-fontsize" class="select-input">
+                <option value="9pt">Compact (9 pt)</option>
+                <option value="11pt" selected>Standard (11 pt)</option>
+                <option value="13pt">Grand (13 pt)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="pdf-export-progress" class="batch-status-line hidden"></div>
+
+        <div class="btn-group" style="margin-top:1rem;">
+          <button type="button" id="btn-pdf-print" class="btn-primary btn-sm">🖨️ Exporter / Imprimer PDF</button>
+          <button type="button" id="btn-pdf-download" class="btn-secondary btn-sm">⬇️ Télécharger .PDF direct</button>
+          <button type="button" id="btn-pdf-html" class="btn-ghost btn-sm">🌐 .HTML</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale Téléchargement Vidéo / Sous-titres -->
+  <div id="video-download-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Télécharger la vidéo">
+    <div class="peek-modal">
+      <div class="peek-header">
+        <div>
+          <h3 id="vdl-title">⬇️ Télécharger la vidéo</h3>
+          <small id="vdl-meta" style="color:var(--text-secondary);">—</small>
+        </div>
+        <button type="button" id="vdl-modal-close" class="btn-icon-xs">✕</button>
+      </div>
+      <div class="peek-body">
+        <div id="vdl-list" class="vdl-list"></div>
+        <div id="vdl-subs-list" style="margin-top:0.85rem;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tiroir Étude Diamant (FAB 💎) -->
+  <div id="study-gem-drawer" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Outils d'étude de la page">
+    <div class="peek-modal">
+      <div class="peek-header">
+        <h3>💎 Outils d'étude de cet article</h3>
+        <button type="button" id="gem-drawer-close" class="btn-icon-xs">✕</button>
+      </div>
+      <div class="peek-body" id="gem-drawer-body"></div>
+    </div>
+  </div>
 
   <!-- Modale Aperçu Rapide de Verset (Scripture Peek) -->
   <div id="scripture-peek-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Aperçu du verset">
@@ -1114,7 +1454,7 @@
     <div class="cmd-palette-modal">
       <div class="cmd-palette-header">
         <span>⌘</span>
-        <input type="text" id="cmd-palette-input" class="cmd-palette-input" placeholder="Verset, commande ou recherche…" />
+        <input type="text" id="cmd-palette-input" class="cmd-palette-input" placeholder="Verset (ex: Ps 83:15-18), commande ou recherche…" />
         <button type="button" id="btn-close-cmd" class="btn-icon-xs">ESC</button>
       </div>
       <div id="cmd-palette-list" class="cmd-palette-list"></div>
@@ -1130,6 +1470,9 @@
   <script src="js/audio-player.js"></script>
   <script src="js/reader-engine.js"></script>
   <script src="js/video-studio.js"></script>
+  <script src="js/media-export.js"></script>
+  <script src="js/ai-assistant.js"></script>
+  <script src="js/library-hub.js"></script>
   <script src="js/daily-text-widget.js"></script>
   <script src="js/app.js"></script>
 </body>

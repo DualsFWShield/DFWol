@@ -820,6 +820,11 @@ window.DFWolAudio = (function () {
     const queueCountEl = document.getElementById("audio-queue-count");
     const progressEl = document.getElementById("audio-progress-range");
     const timeEl = document.getElementById("audio-time-label");
+    const dlBtn = document.getElementById("audio-btn-download");
+
+    if (dlBtn) {
+      dlBtn.classList.toggle("hidden", !(state.activeEngine === "mp3" && cur && cur.audioUrl));
+    }
 
     const engineNames = {
       mp3: "MP3",
@@ -952,6 +957,12 @@ window.DFWolAudio = (function () {
     document.getElementById("audio-btn-back15")?.addEventListener("click", () => seekDelta(-15));
     document.getElementById("audio-btn-fwd15")?.addEventListener("click", () => seekDelta(15));
     document.getElementById("audio-btn-rate")?.addEventListener("click", cycleRate);
+    document.getElementById("audio-btn-download")?.addEventListener("click", () => {
+      const cur = state.queue[state.currentIndex];
+      if (cur && cur.audioUrl && window.DFWolExport) {
+        window.DFWolExport.downloadAudioTrack(cur.audioUrl, cur.title, cur.subtitle || "");
+      }
+    });
     document.getElementById("audio-btn-close")?.addEventListener("click", hideAudioBar);
 
     document.getElementById("audio-btn-queue")?.addEventListener("click", () => {
@@ -1018,6 +1029,7 @@ window.DFWolAudio = (function () {
     getSkipRefsEnabled,
     setSkipRefsEnabled,
     getSelectedVoice,
+    getCurrentTrack: () => state.queue[state.currentIndex] || null,
     getState: () => state
   };
 })();

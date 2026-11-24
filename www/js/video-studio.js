@@ -121,12 +121,32 @@ window.DFWolVideo = (function () {
   // 1. Chargement des Catégories & Recherche Vidéo Mediator / JW Search
   // ==========================================================================
 
+  let loadedCategoriesLang = null;
+  let cachedCategories = [];
+
+  async function ensureLoadedForLang(lang = "fr") {
+    if (loadedCategoriesLang !== lang) {
+      await loadVideoCategories(lang);
+    }
+  }
+
+  function showVideoCategoriesRoot() {
+    document.getElementById("video-categories-banners")?.classList.remove("hidden");
+    document.getElementById("video-drill-header")?.classList.add("hidden");
+    document.getElementById("video-catalog-grid")?.classList.add("hidden");
+  }
+
   async function loadVideoCategories(lang = "fr") {
     const langLetter = window.DFWolNet.getLangLetter(lang);
     const select = document.getElementById("video-category-select");
+    const bannersEl = document.getElementById("video-categories-banners");
+    if (bannersEl) bannersEl.innerHTML = `<div class="loading-box">⏳ Chargement des catégories vidéo…</div>`;
+
     try {
-      const vodData = await window.DFWolNet.mediatorGet(`categories/${langLetter}/VideoOnDemand?detailed=0&clientType=www`);
+      const vodData = await window.DFWolNet.mediatorGet(`categories/${langLetter}/VideoOnDemand?detailed=1&clientType=www`);
       const subCats = (vodData && vodData.category && vodData.category.subcategories) || [];
+      loadedCategoriesLang = lang;
+      cachedCategories = subCats;
 
       if (select) {
         const baseOpts = [
@@ -136,17 +156,48 @@ window.DFWolVideo = (function () {
         const combined = baseOpts.concat(subCats.map((sc) => ({ key: sc.key, name: sc.name })));
         select.innerHTML = combined.map((c) => `<option value="${esc(c.key)}">${esc(c.name)}</option>`).join("");
       }
-      await loadVideosByCategory("LatestVideos", lang);
+
+      if (bannersEl) {
+        const bannerCats = subCats.length ? subCats : [{ key: "LatestVideos", name: lang === "en" ? "Latest Videos" : "Dernières vidéos", images: {} }];
+        bannersEl.innerHTML = bannerCats
+          .map((sc) => {
+            const img =
+              (sc.images && (sc.images.pnr?.lg || sc.images.wss?.lg || sc.images.lss?.lg || sc.images.sqr?.lg)) || "";
+            return `
+              <button type="button" class="jwl-video-banner" data-vcat-key="${esc(sc.key)}" data-vcat-name="${esc(sc.name)}">
+                ${img ? `<img src="${esc(img)}" alt="" class="jwl-video-banner-bg" loading="lazy" />` : ""}
+                <span class="jwl-video-banner-scrim"></span>
+                <span class="jwl-video-banner-label">${esc(sc.name)}</span>
+              </button>
+            `;
+          })
+          .join("");
+        showVideoCategoriesRoot();
+      } else {
+        await loadVideosByCategory("LatestVideos", lang);
+      }
     } catch (err) {
       const grid = document.getElementById("video-catalog-grid");
+      if (bannersEl) bannersEl.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
       if (grid) grid.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
     }
   }
 
-  async function loadVideosByCategory(categoryKey = "LatestVideos", lang = "fr") {
+  async function loadVideosByCategory(categoryKey = "LatestVideos", lang = "fr", categoryLabel = "") {
     const langLetter = window.DFWolNet.getLangLetter(lang);
     const grid = document.getElementById("video-catalog-grid");
+    const bannersEl = document.getElementById("video-categories-banners");
+    const drillHdr = document.getElementById("video-drill-header");
+    const drillTitle = document.getElementById("video-drill-title");
     if (!grid) return;
+
+    bannersEl?.classList.add("hidden");
+    drillHdr?.classList.remove("hidden");
+    grid.classList.remove("hidden");
+    if (drillTitle) {
+      const found = cachedCategories.find((c) => c.key === categoryKey);
+      drillTitle.textContent = categoryLabel || found?.name || categoryKey;
+    }
     grid.innerHTML = `<div class="loading-box">⏳ Chargement du catalogue vidéo JW…</div>`;
 
     try {
@@ -155,10 +206,9 @@ window.DFWolVideo = (function () {
       );
       const media = (data && data.category && data.category.media) || [];
       if (media.length === 0) {
-        // Si c'est une catégorie conteneur, prendre la première sous-catégorie
         const subs = (data && data.category && data.category.subcategories) || [];
         if (subs.length > 0) {
-          return loadVideosByCategory(subs[0].key, lang);
+          return loadVideosByCategory(subs[0].key, lang, categoryLabel || subs[0].name);
         }
         grid.innerHTML = `<p class="card-helper-text">Aucune vidéo dans cette catégorie.</p>`;
         return;
@@ -182,13 +232,20 @@ window.DFWolVideo = (function () {
 
   async function searchVideosAndSubtitles(query, lang = "fr") {
     const grid = document.getElementById("video-catalog-grid");
+    const bannersEl = document.getElementById("video-categories-banners");
+    const drillHdr = document.getElementById("video-drill-header");
+    const drillTitle = document.getElementById("video-drill-title");
     if (!grid) return;
     const q = (query || "").trim();
     if (!q) {
-      const cat = document.getElementById("video-category-select")?.value || "LatestVideos";
-      return loadVideosByCategory(cat, lang);
+      showVideoCategoriesRoot();
+      return;
     }
 
+    bannersEl?.classList.add("hidden");
+    drillHdr?.classList.remove("hidden");
+    grid.classList.remove("hidden");
+    if (drillTitle) drillTitle.textContent = `Recherche : « ${q} »`;
     grid.innerHTML = `<div class="loading-box">🔍 Recherche dans les titres et sous-titres des vidéos…</div>`;
     try {
       const res = await window.DFWolSearch.runUnifiedSearch({ query: q, scope: "videos", lang, engine: "jw" });
@@ -242,6 +299,7 @@ window.DFWolVideo = (function () {
               ${item.snippetHtml ? `<p class="video-sub-snippet">${item.snippetHtml}</p>` : ""}
               <div class="video-card-actions">
                 <button type="button" class="btn-primary btn-xs" data-play-lank="${esc(item.lank)}" data-play-ts="0">▶ Lire &amp; Sous-titres</button>
+                <button type="button" class="btn-secondary btn-xs" data-dl-lank="${esc(item.lank)}" title="Télécharger MP4">⬇️ MP4</button>
                 ${jumpButtons}
               </div>
             </div>
@@ -432,6 +490,15 @@ window.DFWolVideo = (function () {
       loadVideosByCategory(e.target.value, lang);
     });
 
+    document.getElementById("video-categories-banners")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-vcat-key]");
+      if (!btn) return;
+      const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
+      loadVideosByCategory(btn.getAttribute("data-vcat-key"), lang, btn.getAttribute("data-vcat-name") || "");
+    });
+
+    document.getElementById("btn-video-drill-back")?.addEventListener("click", showVideoCategoriesRoot);
+
     document.getElementById("video-search-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       const q = document.getElementById("video-search-input")?.value || "";
@@ -440,12 +507,24 @@ window.DFWolVideo = (function () {
     });
 
     document.getElementById("video-catalog-grid")?.addEventListener("click", (e) => {
+      const dlBtn = e.target.closest("[data-dl-lank]");
+      if (dlBtn) {
+        const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
+        window.DFWolExport && window.DFWolExport.openVideoDownloadModal(dlBtn.getAttribute("data-dl-lank"), lang);
+        return;
+      }
       const btn = e.target.closest("[data-play-lank]");
       if (!btn) return;
       const lank = btn.getAttribute("data-play-lank");
       const ts = parseFloat(btn.getAttribute("data-play-ts") || "0");
       const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
       openVideoInApp(lank, { startTime: ts, lang });
+    });
+
+    document.getElementById("video-btn-download")?.addEventListener("click", () => {
+      if (!currentVideoState.lank && !currentVideoState.media) return;
+      window.DFWolExport &&
+        window.DFWolExport.openVideoDownloadModal(currentVideoState.media || currentVideoState.lank, currentVideoState.lang);
     });
 
     document.getElementById("video-quality-select")?.addEventListener("change", (e) => {
@@ -571,10 +650,27 @@ window.DFWolVideo = (function () {
         mode: "tts"
       });
     });
+
+    document.getElementById("sub-btn-ai")?.addEventListener("click", () => {
+      if (!currentVideoState.cues.length || !window.DFWolAI) return;
+      const plain = buildPlainTranscript(currentVideoState.cues);
+      window.DFWolAI.prepareAndOpen({
+        title: currentVideoState.media?.title || "Analyse Vidéo",
+        question:
+          currentVideoState.lang === "en"
+            ? `Summarize the main lessons and explain the scriptures cited in the video "${currentVideoState.media?.title || ""}".`
+            : `Résume les leçons principales et explique les versets cités dans la vidéo « ${currentVideoState.media?.title || ""} ».`,
+        transcriptText: plain,
+        refsText: plain,
+        lang: currentVideoState.lang
+      });
+    });
   }
 
   return {
     init,
+    ensureLoadedForLang,
+    showVideoCategoriesRoot,
     loadVideoCategories,
     loadVideosByCategory,
     searchVideosAndSubtitles,

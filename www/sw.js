@@ -2,7 +2,7 @@
    DFWol Studio v3 — Service Worker PWA (Cache Hors-Ligne & Support Web Widgets)
    ========================================================================== */
 
-const CACHE_NAME = "dfwol-studio-cache-v8";
+const CACHE_NAME = "dfwol-studio-cache-v9";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
@@ -14,6 +14,9 @@ const STATIC_ASSETS = [
   "./js/audio-player.js",
   "./js/reader-engine.js",
   "./js/video-studio.js",
+  "./js/media-export.js",
+  "./js/ai-assistant.js",
+  "./js/library-hub.js",
   "./js/daily-text-widget.js",
   "./js/app.js",
   "./assets/icon.svg",

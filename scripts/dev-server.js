@@ -15,8 +15,13 @@ const ALLOWED_HOSTS = new Set([
   "wol.jw.org",
   "www.jw.org",
   "b.jw-cdn.org",
+  "cfp.jw-cdn.org",
   "cfp2.jw-cdn.org",
-  "cms-imgp.jw-cdn.org"
+  "cms-imgp.jw-cdn.org",
+  "pubmedia.jw-cdn.org",
+  "download-a.akamaihd.net",
+  "d34ji3l0qn3w2t.cloudfront.net",
+  "assetsnffrgf-a.akamaihd.net"
 ]);
 
 const MIME_TYPES = {
