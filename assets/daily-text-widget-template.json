@@ -1,0 +1,76 @@
+{
+  "type": "AdaptiveCard",
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "ColumnSet",
+      "columns": [
+        {
+          "type": "Column",
+          "width": "stretch",
+          "items": [
+            {
+              "type": "TextBlock",
+              "text": "TEXTE DU JOUR • ${oneWord}",
+              "size": "Small",
+              "weight": "Bolder",
+              "color": "Accent"
+            },
+            {
+              "type": "TextBlock",
+              "text": "${formattedDate}",
+              "size": "Small",
+              "isSubtle": true,
+              "spacing": "None"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "TextBlock",
+      "text": "${scriptureText}",
+      "wrap": true,
+      "weight": "Bolder",
+      "size": "Medium",
+      "spacing": "Medium"
+    },
+    {
+      "type": "TextBlock",
+      "text": "— ${scriptureRef}",
+      "color": "Accent",
+      "weight": "Bolder",
+      "spacing": "Small"
+    },
+    {
+      "type": "TextBlock",
+      "text": "💡 ${oneSentence}",
+      "wrap": true,
+      "weight": "Bolder",
+      "size": "Small",
+      "spacing": "Small"
+    },
+    {
+      "type": "TextBlock",
+      "text": "${shortParagraph}",
+      "wrap": true,
+      "size": "Small",
+      "maxLines": 4,
+      "isSubtle": true,
+      "spacing": "Small"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Execute",
+      "title": "Ouvrir DFWol Studio",
+      "verb": "openStudio"
+    },
+    {
+      "type": "Action.Execute",
+      "title": "Lire sur WOL",
+      "verb": "openWol"
+    }
+  ]
+}

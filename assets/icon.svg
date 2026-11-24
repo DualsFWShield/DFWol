@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Carré plat officiel couleur JW.org (#4a6da7) -->
+  <rect width="512" height="512" fill="#4a6da7"/>
+  <text x="256" y="246" text-anchor="middle" fill="#ffffff" font-family="Noto Sans, Arial, sans-serif" font-weight="700" font-size="168" letter-spacing="6">DF</text>
+  <text x="256" y="378" text-anchor="middle" fill="#e8effb" font-family="Noto Sans, Arial, sans-serif" font-weight="700" font-size="108" letter-spacing="12">WOL</text>
+</svg>

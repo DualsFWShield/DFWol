@@ -1,0 +1,41 @@
+{
+  "name": "dfwol-jw-supertool",
+  "version": "3.0.0",
+  "description": "DFWol — Outil combinant JW.org et WOL.jw.org (FR & EN) : recherche totale, Bible & publications intégrées avec audio, vidéos + sous-titres, Guide de recherche en lot, widget Texte du jour (Capacitor) et PWA.",
+  "main": "www/index.html",
+  "scripts": {
+    "start": "node scripts/dev-server.js",
+    "sync:web": "node scripts/sync-www.js",
+    "android:widget": "node scripts/apply-android-widget.js",
+    "android:prepare": "node scripts/sync-www.js && node scripts/prepare-android.js",
+    "cap:init": "npx cap init DFWol org.dfwol.app --web-dir www",
+    "cap:add:android": "npx cap add android",
+    "cap:add:ios": "npx cap add ios",
+    "cap:sync": "npm run sync:web && npx cap sync",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios"
+  },
+  "keywords": [
+    "jw.org",
+    "wol.jw.org",
+    "bible",
+    "research",
+    "pwa",
+    "capacitor",
+    "widget",
+    "daily-text"
+  ],
+  "dependencies": {
+    "@capacitor/app": "^6.0.0",
+    "@capacitor/browser": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/local-notifications": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor/share": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "appId": "org.dfwol.app",
+  "appName": "DFWol Studio",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "wol.jw.org",
+      "*.jw.org",
+      "*.jw-cdn.org"
+    ]
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_dfwol",
+      "iconColor": "#4a6da7"
+    }
+  }
+}

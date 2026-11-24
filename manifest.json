@@ -1,0 +1,70 @@
+{
+  "name": "DFWol — JW.org & WOL",
+  "short_name": "DFWol",
+  "description": "Outil complet combinant JW.org et WOL.jw.org (FR & EN) : recherche totale, Bible & publications intégrées avec audio, vidéos + sous-titres, Guide de recherche en lot et widget Texte du jour.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f1f1",
+  "theme_color": "#4a6da7",
+  "categories": ["education", "books", "productivity", "reference"],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Texte du Jour (Widget)",
+      "short_name": "Texte du Jour",
+      "description": "Ouvrir directement le widget Texte du Jour",
+      "url": "./index.html?mode=widget",
+      "icons": [{ "src": "assets/icon.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Recherche Totale",
+      "short_name": "Recherche",
+      "description": "Rechercher dans JW.org & WOL",
+      "url": "./index.html?tab=search",
+      "icons": [{ "src": "assets/icon.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Bible & Guide Auto",
+      "short_name": "Bible",
+      "description": "Ouvrir la Bible intégrée et le Guide de recherche",
+      "url": "./index.html?tab=bible",
+      "icons": [{ "src": "assets/icon.svg", "sizes": "192x192" }]
+    }
+  ],
+  "widgets": [
+    {
+      "name": "DFWol — Texte du Jour",
+      "short_name": "Texte du Jour",
+      "description": "Affiche chaque jour le verset et le commentaire d'Examinons les Écritures chaque jour (WOL.jw.org).",
+      "tag": "dfwol-daily-text",
+      "template": "dfwol-daily-text-template",
+      "ms_ac_template": "assets/daily-text-widget-template.json",
+      "data": "assets/daily-text-widget-data.json",
+      "type": "application/json",
+      "auth": false,
+      "update": 3600,
+      "icons": [
+        {
+          "src": "assets/icon.svg",
+          "sizes": "192x192"
+        }
+      ],
+      "backgrounds": [
+        {
+          "src": "assets/icon.svg",
+          "sizes": "512x512"
+        }
+      ]
+    }
+  ]
+}
