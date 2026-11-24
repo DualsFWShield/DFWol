@@ -219,10 +219,24 @@ window.DFWolDailyText = (function () {
     };
   }
 
+  function cleanDtText(str) {
+    if (window.DFWolSearch && typeof window.DFWolSearch.cleanText === "function") {
+      return window.DFWolSearch.cleanText(str);
+    }
+    return String(str || "").replace(/&nbsp;|&#160;/gi, " ").replace(/[\u00a0\u202f\u200b]/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   function sanitizeCommentaryHtml(bodyEl, lang) {
     if (!bodyEl) return "";
     const clone = bodyEl.cloneNode(true);
     clone.querySelectorAll("script, style").forEach((el) => el.remove());
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null);
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.nodeValue) {
+        n.nodeValue = n.nodeValue.replace(/&nbsp;/gi, " ").replace(/[\u00a0\u202f\u200b]/g, " ");
+      }
+    }
     clone.querySelectorAll("a[href]").forEach((a) => {
       const href = a.getAttribute("href") || "";
       if (href.startsWith("/")) {
@@ -273,8 +287,8 @@ window.DFWolDailyText = (function () {
       const bodyPara = scope.querySelector(".bodyTxt p");
 
       if (themeEl && (bodyEl || bodyPara)) {
-        const fullTheme = (themeEl.textContent || "").replace(/\s+/g, " ").trim();
-        const commentaryPlain = ((bodyEl || bodyPara).textContent || "").replace(/\s+/g, " ").trim();
+        const fullTheme = cleanDtText(themeEl.textContent || "");
+        const commentaryPlain = cleanDtText((bodyEl || bodyPara).textContent || "");
         const commentaryHtml = sanitizeCommentaryHtml(bodyEl || bodyPara, lang);
 
         let scriptureText = fullTheme;

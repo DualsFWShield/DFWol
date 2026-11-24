@@ -82,13 +82,13 @@ window.DFWolVideo = (function () {
 
       const start = timeStrToSeconds(m[1]);
       const end = timeStrToSeconds(m[2]);
-      const rawText = lines
+      const rawLines = lines
         .slice(timeLineIdx + 1)
         .join(" ")
-        .replace(/<[^>]+>/g, "")
-        .replace(/\u00a0/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+        .replace(/<[^>]+>/g, "");
+      const rawText = (window.DFWolSearch && window.DFWolSearch.cleanText)
+        ? window.DFWolSearch.cleanText(rawLines)
+        : rawLines.replace(/&nbsp;|&#160;/gi, " ").replace(/[\u00a0\u202f\u200b]/g, " ").replace(/\s+/g, " ").trim();
 
       if (!rawText) return;
       cues.push({

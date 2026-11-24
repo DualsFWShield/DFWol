@@ -647,6 +647,7 @@
               <button type="button" id="reader-btn-font-plus" class="btn-icon" title="Agrandir">A+</button>
             </div>
             <div class="btn-group">
+              <button type="button" id="reader-btn-img-descs" class="btn-secondary btn-sm hidden" title="Afficher/masquer les descriptions d'images">🖼️ Descriptions</button>
               <button type="button" id="reader-btn-mp3" class="btn-primary btn-sm hidden">🎧 Audio MP3</button>
               <button type="button" id="reader-btn-tts" class="btn-secondary btn-sm">🗣️ Écouter (TTS)</button>
               <button type="button" id="reader-btn-to-notes" class="btn-secondary btn-sm">📝 Annoter</button>
@@ -789,6 +790,12 @@
                 <input type="url" id="custom-proxy-input" class="text-input" placeholder="https://mon-worker.workers.dev/?url=" />
                 <button type="button" id="btn-save-proxy" class="btn-secondary btn-sm">Enregistrer</button>
               </div>
+              <details class="proxy-guide-details">
+                <summary>⚡ Comment éviter toute limite sur GitHub Pages (Cloudflare Worker gratuit)</summary>
+                <p class="card-helper-text" style="margin-top:0.5rem;">
+                  Les proxies publics partagés limitent parfois après plusieurs articles. Créez gratuitement un Worker sur <code>workers.cloudflare.com</code> en collant le fichier <code>cloudflare-worker/proxy-worker.js</code> du dépôt, puis collez son URL ci-dessus.
+                </p>
+              </details>
             </div>
           </div>
         </div>
@@ -929,6 +936,24 @@
         <button type="button" id="peek-close-btn" class="btn-icon-xs">✕</button>
       </div>
       <div id="peek-body" class="peek-body"></div>
+    </div>
+  </div>
+
+  <!-- Lightbox Image + Description Officielle -->
+  <div id="image-lightbox-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-label="Aperçu de l'illustration">
+    <div class="lightbox-modal">
+      <div class="peek-header">
+        <strong>🖼️ Illustration &amp; Description</strong>
+        <div class="btn-group">
+          <button type="button" id="lightbox-speak-btn" class="btn-secondary btn-xs">🗣️ Écouter</button>
+          <button type="button" id="lightbox-close-btn" class="btn-icon-xs">✕</button>
+        </div>
+      </div>
+      <div class="lightbox-body">
+        <img id="lightbox-img" class="lightbox-img" src="" alt="" />
+        <p id="lightbox-caption" class="lightbox-caption"></p>
+        <div id="lightbox-alt-desc" class="lightbox-alt-desc"></div>
+      </div>
     </div>
   </div>
 

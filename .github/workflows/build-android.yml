@@ -68,8 +68,9 @@ jobs:
           fi
           node scripts/sync-www.js
           npx cap add android
-          node scripts/apply-android-widget.js
           npx cap sync android
+          node scripts/apply-android-widget.js
+          test -f android/app/src/main/res/xml/daily_text_widget_info.xml
 
       - name: Configure Release Keystore (Secret or CI fallback keystore)
         env:

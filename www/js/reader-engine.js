@@ -12,19 +12,44 @@ window.DFWolReader = (function () {
   let currentBibleState = { bookNum: 19, chapter: 83, verse: 18, lang: "fr", parallel: false };
   let readerFontScale = 100;
   let batchExtractedArticles = [];
+  let articleRequestSeq = 0;
+  let bibleRequestSeq = 0;
+  let allImageDescsExpanded = true;
 
   function esc(str) {
     return window.DFWolSearch ? window.DFWolSearch.escapeHtml(str) : String(str || "");
+  }
+
+  function cleanStr(str) {
+    if (window.DFWolSearch && typeof window.DFWolSearch.cleanText === "function") {
+      return window.DFWolSearch.cleanText(str);
+    }
+    return String(str || "").replace(/&nbsp;|&#160;/gi, " ").replace(/[\u00a0\u202f\u200b]/g, " ").replace(/\s+/g, " ").trim();
   }
 
   function absolutizeWolHtml(containerEl) {
     if (!containerEl) return;
     containerEl.querySelectorAll("script, style, .nav, .pswp").forEach((el) => el.remove());
 
+    // Nettoyer les espaces insécables / &nbsp; littéraux dans tous les nœuds texte
+    const walker = document.createTreeWalker(containerEl, NodeFilter.SHOW_TEXT, null);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue) {
+        node.nodeValue = node.nodeValue
+          .replace(/&nbsp;|&#160;/gi, " ")
+          .replace(/[\u00a0\u202f\u200b\ufeff]/g, " ");
+      }
+    }
+
     containerEl.querySelectorAll("img").forEach((img) => {
       const src = img.getAttribute("src") || "";
       if (src.startsWith("/")) {
         img.setAttribute("src", `https://wol.jw.org${src}`);
+      }
+      const smallSrc = img.getAttribute("data-img-small-src") || "";
+      if (smallSrc.startsWith("/")) {
+        img.setAttribute("data-img-small-src", `https://wol.jw.org${smallSrc}`);
       }
       img.setAttribute("loading", "lazy");
     });
@@ -36,6 +61,131 @@ window.DFWolReader = (function () {
       }
       a.removeAttribute("target");
     });
+  }
+
+  function openImageLightbox(src, caption = "", altDesc = "", lang = "fr") {
+    const modal = document.getElementById("image-lightbox-modal");
+    const imgEl = document.getElementById("lightbox-img");
+    const capEl = document.getElementById("lightbox-caption");
+    const descEl = document.getElementById("lightbox-alt-desc");
+    const speakBtn = document.getElementById("lightbox-speak-btn");
+    if (!modal || !imgEl) return;
+
+    imgEl.src = src;
+    imgEl.alt = altDesc || caption || "Illustration";
+    if (capEl) capEl.textContent = caption || "";
+    if (descEl) {
+      descEl.textContent = altDesc || "Aucune description détaillée disponible.";
+      descEl.classList.toggle("hidden", !altDesc);
+    }
+    if (speakBtn) {
+      speakBtn.classList.toggle("hidden", !altDesc);
+      speakBtn.onclick = () => {
+        if (altDesc && window.DFWolAudio) {
+          window.DFWolAudio.playTrack({
+            title: "Description de l'image",
+            subtitle: caption || "Illustration",
+            text: altDesc,
+            lang,
+            mode: "tts"
+          });
+        }
+      };
+    }
+    modal.classList.remove("hidden");
+  }
+
+  /**
+   * Transforme chaque image / figure WOL en carte éditoriale avec panneau
+   * « 🖼️ Description de l'image » (alt officiel) + boutons Écouter / Copier / Lightbox.
+   */
+  function enhanceArticleFigures(containerEl, lang = "fr") {
+    if (!containerEl) return 0;
+    let describedCount = 0;
+
+    // 1. Traiter les <figure> WOL
+    const figures = Array.from(containerEl.querySelectorAll("figure"));
+    figures.forEach((fig) => {
+      if (fig.classList.contains("jw-figure-card")) return;
+      fig.classList.add("jw-figure-card");
+
+      const img = fig.querySelector("img");
+      const figcaption = fig.querySelector("figcaption");
+      const captionText = figcaption ? cleanStr(figcaption.textContent) : "";
+      const altText = img ? cleanStr(img.getAttribute("alt") || img.getAttribute("title") || "") : "";
+
+      if (img) {
+        img.classList.add("jw-figure-img");
+        img.title = "Cliquer pour agrandir l'image";
+        img.addEventListener("click", () => openImageLightbox(img.src, captionText, altText, lang));
+      }
+
+      if (altText && altText.length >= 4) {
+        describedCount++;
+        const details = document.createElement("details");
+        details.className = "jw-img-desc-box";
+        if (allImageDescsExpanded) details.open = true;
+
+        const summary = document.createElement("summary");
+        summary.innerHTML = `<span>🖼️ Description de l'image</span><span class="badge badge-subtle">Alt officiel</span>`;
+        details.appendChild(summary);
+
+        const descBody = document.createElement("div");
+        descBody.className = "jw-img-desc-content";
+
+        const p = document.createElement("p");
+        p.textContent = altText;
+        descBody.appendChild(p);
+
+        const actions = document.createElement("div");
+        actions.className = "jw-img-desc-actions";
+
+        const speakBtn = document.createElement("button");
+        speakBtn.type = "button";
+        speakBtn.className = "btn-secondary btn-xs";
+        speakBtn.textContent = "🗣️ Écouter";
+        speakBtn.addEventListener("click", () => {
+          window.DFWolAudio &&
+            window.DFWolAudio.playTrack({
+              title: "Description de l'image",
+              subtitle: captionText || "Illustration",
+              text: altText,
+              lang,
+              mode: "tts"
+            });
+        });
+
+        const copyBtn = document.createElement("button");
+        copyBtn.type = "button";
+        copyBtn.className = "btn-ghost btn-xs";
+        copyBtn.textContent = "📋 Copier";
+        copyBtn.addEventListener("click", async () => {
+          await navigator.clipboard.writeText(altText);
+          window.DFWolToast && window.DFWolToast("Description de l'image copiée !");
+        });
+
+        actions.appendChild(speakBtn);
+        actions.appendChild(copyBtn);
+        descBody.appendChild(actions);
+        details.appendChild(descBody);
+        fig.appendChild(details);
+      }
+    });
+
+    // 2. Traiter les <img> hors <figure> possédant un attribut alt descriptif
+    containerEl.querySelectorAll("img:not(.jw-figure-img)").forEach((img) => {
+      const altText = cleanStr(img.getAttribute("alt") || "");
+      if (altText.length >= 8 && img.parentElement) {
+        const wrapper = document.createElement("figure");
+        wrapper.className = "jw-figure-card";
+        img.parentNode.insertBefore(wrapper, img);
+        wrapper.appendChild(img);
+        enhanceArticleFigures(wrapper.parentElement, lang);
+        describedCount++;
+      }
+    });
+
+    return describedCount;
   }
 
   // ==========================================================================
@@ -51,17 +201,17 @@ window.DFWolReader = (function () {
     const clone = articleEl.cloneNode(true);
     absolutizeWolHtml(clone);
 
-    // Extraire titre & source
+    // Extraire titre & source nettoyés
     const titleEl = clone.querySelector("header h1, h1, h2");
-    const title = (titleEl ? titleEl.textContent : doc.title || "Article WOL").replace(/\s+/g, " ").trim();
+    const title = cleanStr(titleEl ? titleEl.textContent : doc.title || "Article WOL");
 
     const citationEl = doc.querySelector(".docCitation, .pubNavigationTitle, .titleElement, .sourceTitle");
-    const citation = citationEl ? citationEl.textContent.replace(/\s+/g, " ").trim() : "";
+    const citation = citationEl ? cleanStr(citationEl.textContent) : "";
 
     // Paragraphes pour TTS & surlignage
     const paragraphs = [];
     clone.querySelectorAll("p, h1, h2, h3, li.su").forEach((p, idx) => {
-      const txt = (p.textContent || "").replace(/\s+/g, " ").trim();
+      const txt = cleanStr(p.textContent || "");
       if (!txt) return;
       const pid = p.getAttribute("data-pid") || p.getAttribute("id") || `rp-${idx}`;
       p.setAttribute("data-reader-pid", pid);
@@ -84,6 +234,7 @@ window.DFWolReader = (function () {
   }
 
   async function openArticleInApp(wolUrlOrDocId, options = {}) {
+    const reqId = ++articleRequestSeq;
     const lang = options.lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
     let targetUrl = String(wolUrlOrDocId || "").trim();
     if (/^\d+$/.test(targetUrl)) {
@@ -99,14 +250,17 @@ window.DFWolReader = (function () {
     const metaEl = document.getElementById("reader-article-meta");
     const bodyEl = document.getElementById("reader-article-body");
     const mp3Btn = document.getElementById("reader-btn-mp3");
+    const imgBtn = document.getElementById("reader-btn-img-descs");
     const extLink = document.getElementById("reader-btn-external");
 
     if (titleEl) titleEl.textContent = "Chargement de la publication…";
     if (bodyEl) bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement de l'article depuis WOL.jw.org…</div>`;
     if (mp3Btn) mp3Btn.classList.add("hidden");
+    if (imgBtn) imgBtn.classList.add("hidden");
 
     try {
       const parsed = await fetchArticleParsed(targetUrl);
+      if (reqId !== articleRequestSeq) return; // Ignore réponse obsolète
       currentArticleData = parsed;
 
       if (!options.fromHistory) {
@@ -124,6 +278,12 @@ window.DFWolReader = (function () {
       if (bodyEl) {
         bodyEl.innerHTML = parsed.html;
         bodyEl.style.fontSize = `${readerFontScale}%`;
+        const imgCount = enhanceArticleFigures(bodyEl, parsed.lang);
+        if (imgBtn && imgCount > 0) {
+          imgBtn.classList.remove("hidden");
+          imgBtn.textContent = `🖼️ Descriptions (${imgCount})`;
+        }
+        bodyEl.dataset.inappBound = "0";
         attachInAppLinkInterceptor(bodyEl, parsed.lang);
       }
 
@@ -132,6 +292,7 @@ window.DFWolReader = (function () {
       // Vérification asynchrone d'un MP3 officiel via PubMedia
       if (parsed.docId && mp3Btn) {
         const track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, parsed.lang);
+        if (reqId !== articleRequestSeq) return;
         if (track && track.file && track.file.url) {
           parsed.mp3Url = track.file.url;
           mp3Btn.classList.remove("hidden");
@@ -141,14 +302,27 @@ window.DFWolReader = (function () {
         }
       }
     } catch (err) {
-      if (titleEl) titleEl.textContent = "Erreur de chargement";
+      if (reqId !== articleRequestSeq) return;
+      if (titleEl) titleEl.textContent = "Chargement interrompu";
       if (bodyEl) {
         bodyEl.innerHTML = `
-          <div class="card-helper-text">
-            <p>⚠️ ${esc(err.message)}</p>
-            <a href="${esc(targetUrl)}" target="_blank" rel="noopener" class="btn-secondary btn-sm">Ouvrir sur WOL.jw.org ↗</a>
+          <div class="error-recovery-box">
+            <p><strong>⚠️ ${esc(err.message)}</strong></p>
+            <div class="btn-group" style="margin-top:0.75rem;">
+              <button type="button" class="btn-primary btn-sm" id="reader-retry-btn">🔄 Réessayer</button>
+              <button type="button" class="btn-secondary btn-sm" id="reader-setup-proxy-btn">⚡ Configurer un proxy gratuit</button>
+              <a href="${esc(targetUrl)}" target="_blank" rel="noopener" class="btn-ghost btn-sm">Ouvrir sur WOL.jw.org ↗</a>
+            </div>
           </div>
         `;
+        document.getElementById("reader-retry-btn")?.addEventListener("click", () => {
+          window.DFWolNet.clearHtmlCache();
+          openArticleInApp(targetUrl, options);
+        });
+        document.getElementById("reader-setup-proxy-btn")?.addEventListener("click", () => {
+          window.DFWolSwitchTab && window.DFWolSwitchTab("widget");
+          document.getElementById("custom-proxy-input")?.focus();
+        });
       }
     }
   }
@@ -187,7 +361,7 @@ window.DFWolReader = (function () {
         }
       });
 
-      const cleanText = clone.textContent.replace(/^\d+\s*/, "").replace(/[+*]/g, "").replace(/\s+/g, " ").trim();
+      const cleanText = cleanStr(clone.textContent.replace(/^\d+\s*/, "").replace(/[+*]/g, ""));
       if (!versesMap.has(vNum)) {
         versesMap.set(vNum, { verse: vNum, parts: [] });
       }
@@ -198,7 +372,7 @@ window.DFWolReader = (function () {
       .sort((a, b) => a.verse - b.verse)
       .map((item) => ({
         verse: item.verse,
-        text: item.parts.join(" ").replace(/\s+/g, " ").trim()
+        text: cleanStr(item.parts.join(" "))
       }));
 
     // 2. Extraction des sections d'étude par verset (Notes, Renvois, Guide de recherche, Index)
@@ -211,32 +385,30 @@ window.DFWolReader = (function () {
 
       const crossRefs = [];
       sec.querySelectorAll(".group.marginal .marginal.title").forEach((mEl) => {
-        const txt = (mEl.textContent || "").replace(/\s+/g, " ").trim();
+        const txt = cleanStr(mEl.textContent || "");
         if (txt) crossRefs.push(txt);
       });
 
       const studyNotes = [];
       sec.querySelectorAll(".group.studyNote li, .studyNote .bodyTxt p, .studyNote li.item").forEach((snEl) => {
-        const txt = (snEl.textContent || "").replace(/\s+/g, " ").trim();
+        const txt = cleanStr(snEl.textContent || "");
         if (txt && txt.length > 3) studyNotes.push(txt);
       });
 
       const researchGuide = [];
       sec.querySelectorAll("li.item.ref-rsg").forEach((rsgLi) => {
-        // Chaque bloc contient des p.su avec un <a> suivi d'un p.su avec <em>ref</em>
         const linksInLi = rsgLi.querySelectorAll("a[href]");
         linksInLi.forEach((a) => {
-          const title = (a.textContent || "").replace(/\s+/g, " ").trim();
+          const title = cleanStr(a.textContent || "");
           let href = a.getAttribute("href") || "";
           if (!title || !href) return;
           if (href.startsWith("/")) href = `https://wol.jw.org${href}`;
 
-          // Chercher la référence abrégée (w08 15/10 p. 12 § 3...) dans le div suivant
           let citation = "";
           const parentDiv = a.closest("div");
           const nextDiv = parentDiv ? parentDiv.nextElementSibling : null;
           if (nextDiv) {
-            citation = (nextDiv.textContent || "").replace(/\s+/g, " ").trim();
+            citation = cleanStr(nextDiv.textContent || "");
           }
 
           researchGuide.push({
@@ -278,6 +450,7 @@ window.DFWolReader = (function () {
   }
 
   async function openBibleChapter(bookNum, chapter, highlightVerse = 1, lang = null, parallel = null) {
+    const reqId = ++bibleRequestSeq;
     const activeLang = lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
     const isParallel = parallel !== null ? parallel : currentBibleState.parallel;
     const book = window.DFWolBible.getBookByNumber(bookNum);
@@ -302,6 +475,7 @@ window.DFWolReader = (function () {
       const secondaryPromise = isParallel ? fetchBibleChapterParsed(book.num, ch, secondaryLang) : Promise.resolve(null);
 
       const [primaryData, secondaryData] = await Promise.all([primaryPromise, secondaryPromise]);
+      if (reqId !== bibleRequestSeq) return;
       currentBibleState.primaryData = primaryData;
       currentBibleState.secondaryData = secondaryData;
 
@@ -766,6 +940,22 @@ window.DFWolReader = (function () {
         "Étude Perso",
         `${currentArticleData.citation ? currentArticleData.citation + "\n" : ""}${currentArticleData.plainText.slice(0, 1500)}…`
       );
+    });
+
+    document.getElementById("reader-btn-img-descs")?.addEventListener("click", () => {
+      allImageDescsExpanded = !allImageDescsExpanded;
+      document.querySelectorAll("#reader-article-body details.jw-img-desc-box").forEach((d) => {
+        d.open = allImageDescsExpanded;
+      });
+    });
+
+    document.getElementById("lightbox-close-btn")?.addEventListener("click", () => {
+      document.getElementById("image-lightbox-modal")?.classList.add("hidden");
+    });
+    document.getElementById("image-lightbox-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "image-lightbox-modal") {
+        e.target.classList.add("hidden");
+      }
     });
 
     document.getElementById("peek-close-btn")?.addEventListener("click", () => {

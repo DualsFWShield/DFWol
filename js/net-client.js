@@ -1,5 +1,6 @@
 /* ==========================================================================
-   DFWol Studio — Couche Réseau Universelle (JW.org APIs + WOL Proxy Cascade)
+   DFWol Studio — Couche Réseau Universelle (JW.org APIs + Proxy Cascade Anti-Blocage)
+   Circuit-Breaker par proxy, validation HTML WOL stricte, cache LRU 30 pages
    ========================================================================== */
 
 window.DFWolNet = (function () {
@@ -14,7 +15,12 @@ window.DFWolNet = (function () {
   let cachedJwtTime = 0;
   const JWT_TTL_MS = 10 * 60 * 1000;
 
+  // Cache LRU en mémoire (max 30 pages valides)
+  const MAX_LRU_ENTRIES = 30;
   const htmlMemoryCache = new Map();
+
+  // Circuit-breaker : map proxyName -> timestamp d'expiration du cooldown
+  const proxyCooldowns = new Map();
 
   function getLangLetter(langCode) {
     return langCode === "en" ? "E" : "F";
@@ -36,7 +42,7 @@ window.DFWolNet = (function () {
     } catch (_) {}
   }
 
-  function isLocalServerProxyAvailable() {
+  function isLocalhost() {
     return (
       typeof window !== "undefined" &&
       (window.location.protocol === "http:" || window.location.protocol === "https:") &&
@@ -44,7 +50,45 @@ window.DFWolNet = (function () {
     );
   }
 
-  async function fetchWithTimeout(url, options = {}, timeoutMs = 12000) {
+  function isLocalServerProxyAvailable() {
+    return isLocalhost();
+  }
+
+  function isProxyInCooldown(name) {
+    const until = proxyCooldowns.get(name);
+    if (!until) return false;
+    if (Date.now() > until) {
+      proxyCooldowns.delete(name);
+      return false;
+    }
+    return true;
+  }
+
+  function markProxyCooldown(name, durationMs = 180000) {
+    proxyCooldowns.set(name, Date.now() + durationMs);
+  }
+
+  /**
+   * Valide qu'une réponse HTML provient bien de WOL.jw.org et non d'une page 429/401/Cloudflare
+   */
+  function isValidWolHtml(html) {
+    if (!html || typeof html !== "string" || html.length < 300) return false;
+    if (/Just a moment\.\.\.|Attention Required! \| Cloudflare|Too Many Requests|Error 1015|Access Denied/i.test(html.slice(0, 2000))) {
+      return false;
+    }
+    return /id=["']article["']|class=["'][^"']*(?:bodyTxt|themeScrp|scalableui|ref-rsg|results)|wol\.jw\.org/i.test(html);
+  }
+
+  function setLruCache(key, value) {
+    if (htmlMemoryCache.has(key)) htmlMemoryCache.delete(key);
+    htmlMemoryCache.set(key, value);
+    if (htmlMemoryCache.size > MAX_LRU_ENTRIES) {
+      const oldestKey = htmlMemoryCache.keys().next().value;
+      htmlMemoryCache.delete(oldestKey);
+    }
+  }
+
+  async function fetchWithTimeout(url, options = {}, timeoutMs = 9000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -54,9 +98,6 @@ window.DFWolNet = (function () {
     }
   }
 
-  /**
-   * Récupère et met en cache le jeton JWT public de recherche JW.org (CORS: *)
-   */
   async function getJwSearchToken(forceRefresh = false) {
     const now = Date.now();
     if (!forceRefresh && cachedJwt && now - cachedJwtTime < JWT_TTL_MS) {
@@ -67,17 +108,12 @@ window.DFWolNet = (function () {
       throw new Error(`Impossible d'obtenir le jeton JW.org (${resp.status})`);
     }
     const token = (await resp.text()).trim();
-    if (!token) {
-      throw new Error("Jeton JW.org vide");
-    }
+    if (!token) throw new Error("Jeton JW.org vide");
     cachedJwt = token;
     cachedJwtTime = now;
     return token;
   }
 
-  /**
-   * Recherche directe sur l'API officielle b.jw-cdn.org/apis/search/results/{F|E}/{slug}
-   */
   async function jwSearch(slug = "all", query = "", lang = "fr", limit = 24, offset = 0) {
     const q = (query || "").trim();
     if (!q) return { results: [], total: null };
@@ -86,19 +122,11 @@ window.DFWolNet = (function () {
     const endpoint = `https://b.jw-cdn.org/apis/search/results/${langLetter}/${encodeURIComponent(safeSlug)}?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`;
 
     let token = await getJwSearchToken(false);
-    let resp = await fetchWithTimeout(
-      endpoint,
-      { headers: { Authorization: `Bearer ${token}` } },
-      12000
-    );
+    let resp = await fetchWithTimeout(endpoint, { headers: { Authorization: `Bearer ${token}` } }, 10000);
 
     if (resp.status === 401) {
       token = await getJwSearchToken(true);
-      resp = await fetchWithTimeout(
-        endpoint,
-        { headers: { Authorization: `Bearer ${token}` } },
-        12000
-      );
+      resp = await fetchWithTimeout(endpoint, { headers: { Authorization: `Bearer ${token}` } }, 10000);
     }
 
     if (!resp.ok) {
@@ -107,29 +135,19 @@ window.DFWolNet = (function () {
     return await resp.json();
   }
 
-  /**
-   * Requête directe vers l'API Mediator JW.org (Catégories, Vidéos, Audio, Sous-titres)
-   */
   async function mediatorGet(path) {
     const cleanPath = String(path || "").replace(/^\/+/, "");
     const url = `${MEDIATOR_BASE}/${cleanPath}`;
-    const resp = await fetchWithTimeout(url, {}, 12000);
-    if (!resp.ok) {
-      throw new Error(`Erreur Mediator (${resp.status})`);
-    }
+    const resp = await fetchWithTimeout(url, {}, 10000);
+    if (!resp.ok) throw new Error(`Erreur Mediator (${resp.status})`);
     return await resp.json();
   }
 
-  /**
-   * Requête directe vers l'API PubMedia (MP3 officiels Bible & Publications)
-   */
   async function pubMediaGet(paramsObj = {}) {
     const params = new URLSearchParams(Object.assign({ output: "json", alllangs: "0" }, paramsObj));
     const url = `${PUBMEDIA_BASE}?${params.toString()}`;
-    const resp = await fetchWithTimeout(url, {}, 12000);
-    if (!resp.ok) {
-      throw new Error(`Erreur PubMedia (${resp.status})`);
-    }
+    const resp = await fetchWithTimeout(url, {}, 10000);
+    if (!resp.ok) throw new Error(`Erreur PubMedia (${resp.status})`);
     return await resp.json();
   }
 
@@ -168,26 +186,19 @@ window.DFWolNet = (function () {
     }
   }
 
-  /**
-   * Télécharge un fichier texte (notamment .vtt) avec décodage UTF-8 strict via ArrayBuffer
-   */
   async function fetchTextDirect(url) {
     try {
-      const resp = await fetchWithTimeout(url, {}, 12000);
+      const resp = await fetchWithTimeout(url, {}, 10000);
       if (resp.ok) {
         const buf = await resp.arrayBuffer();
         return new TextDecoder("utf-8").decode(buf);
       }
     } catch (_) {}
 
-    // Fallback via proxy si nécessaire
-    const res = await fetchWolHtml(url, { skipCache: true });
+    const res = await fetchWolHtml(url, { skipCache: true, skipValidation: true });
     return res.html;
   }
 
-  /**
-   * Extrait le docid numérique depuis une URL finale WOL/JW ou depuis le HTML d'un article WOL
-   */
   function extractDocIdFromUrlOrHtml(url, html = "") {
     if (url) {
       const mPath = String(url).match(/\/wol\/d\/r\d+\/lp-[a-z]+\/(\d+)/i);
@@ -204,52 +215,126 @@ window.DFWolNet = (function () {
     return null;
   }
 
-  function decodeResponseBuffer(buf, contentType = "") {
+  function decodeResponseBuffer(buf) {
     return new TextDecoder("utf-8").decode(buf);
   }
 
+  function getPublicProxyPool() {
+    const pool = [
+      {
+        name: "allorigins-raw",
+        build: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        parse: async (resp, origUrl) => {
+          const buf = await resp.arrayBuffer();
+          return { html: decodeResponseBuffer(buf), finalUrl: resp.headers.get("X-Final-Url") || origUrl };
+        }
+      },
+      {
+        name: "codetabs",
+        build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+        parse: async (resp, origUrl) => {
+          const buf = await resp.arrayBuffer();
+          return { html: decodeResponseBuffer(buf), finalUrl: origUrl };
+        }
+      },
+      {
+        name: "allorigins-get",
+        build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+        parse: async (resp, origUrl) => {
+          const json = await resp.json();
+          return {
+            html: json.contents || "",
+            finalUrl: (json.status && json.status.url) || origUrl
+          };
+        }
+      },
+      {
+        name: "cors.lol",
+        build: (u) => `https://api.cors.lol/?url=${encodeURIComponent(u)}`,
+        parse: async (resp, origUrl) => {
+          const buf = await resp.arrayBuffer();
+          return { html: decodeResponseBuffer(buf), finalUrl: origUrl };
+        }
+      }
+    ];
+
+    if (isLocalhost()) {
+      pool.push({
+        name: "corsproxy.io",
+        build: (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+        parse: async (resp, origUrl) => {
+          const buf = await resp.arrayBuffer();
+          return { html: decodeResponseBuffer(buf), finalUrl: origUrl };
+        }
+      });
+    }
+
+    return pool;
+  }
+
+  async function tryPublicProxy(proxyDef, targetUrl, skipValidation = false) {
+    const resp = await fetchWithTimeout(proxyDef.build(targetUrl), {}, 7500);
+    if (resp.status === 401 || resp.status === 403 || resp.status === 429) {
+      markProxyCooldown(proxyDef.name, resp.status === 429 ? 120000 : 300000);
+      throw new Error(`${proxyDef.name}: HTTP ${resp.status}`);
+    }
+    if (!resp.ok) {
+      markProxyCooldown(proxyDef.name, 60000);
+      throw new Error(`${proxyDef.name}: HTTP ${resp.status}`);
+    }
+    const parsed = await proxyDef.parse(resp, targetUrl);
+    if (!parsed.html || (!skipValidation && !isValidWolHtml(parsed.html))) {
+      throw new Error(`${proxyDef.name}: réponse non-WOL`);
+    }
+    return {
+      html: parsed.html,
+      finalUrl: parsed.finalUrl || targetUrl,
+      docId: extractDocIdFromUrlOrHtml(parsed.finalUrl || targetUrl, parsed.html),
+      source: proxyDef.name
+    };
+  }
+
   /**
-   * Récupère le HTML d'une URL WOL.jw.org en gérant les redirections & CORS :
+   * Récupère le HTML d'une URL WOL.jw.org sans jamais bloquer après 1-2 articles :
    * 1) CapacitorHttp natif
    * 2) Proxy local intégré (/api/proxy?url=...)
-   * 3) Proxy personnalisé utilisateur (localStorage / Cloudflare Worker)
-   * 4) Cascade de proxies CORS publics
+   * 3) Proxy personnalisé utilisateur (Cloudflare Worker)
+   * 4) Course parallèle contrôlée avec Circuit-Breaker sur les proxies publics + 2ème vague
    */
   async function fetchWolHtml(targetUrl, options = {}) {
     const cleanUrl = String(targetUrl || "").trim();
     if (!cleanUrl) throw new Error("URL cible manquante");
 
     if (!options.skipCache && htmlMemoryCache.has(cleanUrl)) {
-      return htmlMemoryCache.get(cleanUrl);
-    }
-
-    if (!options.skipCache) {
-      try {
-        const sess = sessionStorage.getItem("dfwol_html_" + cleanUrl);
-        if (sess) {
-          const parsed = JSON.parse(sess);
-          htmlMemoryCache.set(cleanUrl, parsed);
-          return parsed;
-        }
-      } catch (_) {}
+      const cached = htmlMemoryCache.get(cleanUrl);
+      // Rafraîchit l'ordre LRU
+      setLruCache(cleanUrl, cached);
+      return cached;
     }
 
     let result = null;
 
-    // 1. CapacitorHttp Natif (iOS / Android)
+    // 1. CapacitorHttp Natif (Android / iOS)
     try {
       const capHttp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorHttp;
       if (capHttp && typeof capHttp.get === "function") {
-        const res = await capHttp.get({ url: cleanUrl });
+        const res = await capHttp.get({
+          url: cleanUrl,
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36"
+          }
+        });
         if (res && res.status >= 200 && res.status < 400 && res.data) {
           const html = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
-          const finalUrl = res.url || cleanUrl;
-          result = {
-            html,
-            finalUrl,
-            docId: extractDocIdFromUrlOrHtml(finalUrl, html),
-            source: "capacitor-http"
-          };
+          if (options.skipValidation || isValidWolHtml(html)) {
+            const finalUrl = res.url || cleanUrl;
+            result = {
+              html,
+              finalUrl,
+              docId: extractDocIdFromUrlOrHtml(finalUrl, html),
+              source: "capacitor-http"
+            };
+          }
         }
       }
     } catch (_) {}
@@ -258,11 +343,11 @@ window.DFWolNet = (function () {
     if (!result && isLocalServerProxyAvailable()) {
       try {
         const proxyUrl = `/api/proxy?url=${encodeURIComponent(cleanUrl)}`;
-        const resp = await fetchWithTimeout(proxyUrl, {}, 14000);
+        const resp = await fetchWithTimeout(proxyUrl, {}, 12000);
         if (resp.ok) {
           const buf = await resp.arrayBuffer();
-          const html = decodeResponseBuffer(buf, resp.headers.get("content-type") || "");
-          if (html && html.length > 100) {
+          const html = decodeResponseBuffer(buf);
+          if (html && (options.skipValidation || isValidWolHtml(html))) {
             const finalUrl = resp.headers.get("X-Final-Url") || cleanUrl;
             result = {
               html,
@@ -283,90 +368,59 @@ window.DFWolNet = (function () {
         const proxyUrl = customBase.includes("{url}")
           ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
           : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
-        const resp = await fetchWithTimeout(proxyUrl, {}, 14000);
+        const resp = await fetchWithTimeout(proxyUrl, {}, 12000);
         if (resp.ok) {
           const buf = await resp.arrayBuffer();
           const html = decodeResponseBuffer(buf);
-          const finalUrl = resp.headers.get("X-Final-Url") || cleanUrl;
-          result = {
-            html,
-            finalUrl,
-            docId: extractDocIdFromUrlOrHtml(finalUrl, html),
-            source: "custom-proxy"
-          };
+          if (html && (options.skipValidation || isValidWolHtml(html))) {
+            const finalUrl = resp.headers.get("X-Final-Url") || cleanUrl;
+            result = {
+              html,
+              finalUrl,
+              docId: extractDocIdFromUrlOrHtml(finalUrl, html),
+              source: "custom-proxy"
+            };
+          }
         }
       } catch (_) {}
     }
 
-    // 4. Cascade de proxies CORS publics (pour PWA déployée sans backend)
+    // 4. Course parallèle contrôlée sur le pool public (avec Circuit-Breaker)
     if (!result) {
-      const publicProxies = [
-        {
-          name: "corsproxy.io",
-          build: (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-          parse: async (resp) => {
-            const buf = await resp.arrayBuffer();
-            return { html: decodeResponseBuffer(buf), finalUrl: cleanUrl };
-          }
-        },
-        {
-          name: "allorigins",
-          build: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
-          parse: async (resp) => {
-            const json = await resp.json();
-            return {
-              html: json.contents || "",
-              finalUrl: (json.status && json.status.url) || cleanUrl
-            };
-          }
-        },
-        {
-          name: "codetabs",
-          build: (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-          parse: async (resp) => {
-            const buf = await resp.arrayBuffer();
-            return { html: decodeResponseBuffer(buf), finalUrl: cleanUrl };
-          }
-        }
-      ];
+      const pool = getPublicProxyPool();
+      const activePool = pool.filter((p) => !isProxyInCooldown(p.name));
+      const candidates = activePool.length > 0 ? activePool : pool;
 
-      for (const p of publicProxies) {
+      // Vague 1 : course parallèle sur les 2 premiers proxies disponibles
+      const wave1 = candidates.slice(0, 2);
+      try {
+        result = await Promise.any(wave1.map((p) => tryPublicProxy(p, cleanUrl, options.skipValidation)));
+      } catch (_) {}
+
+      // Vague 2 : si la vague 1 échoue, tester les proxies restants
+      if (!result && candidates.length > 2) {
+        const wave2 = candidates.slice(2);
         try {
-          const resp = await fetchWithTimeout(p.build(cleanUrl), {}, 10000);
-          if (!resp.ok) continue;
-          const parsed = await p.parse(resp);
-          if (parsed.html && parsed.html.length > 180) {
-            result = {
-              html: parsed.html,
-              finalUrl: parsed.finalUrl || cleanUrl,
-              docId: extractDocIdFromUrlOrHtml(parsed.finalUrl || cleanUrl, parsed.html),
-              source: p.name
-            };
-            break;
-          }
+          result = await Promise.any(wave2.map((p) => tryPublicProxy(p, cleanUrl, options.skipValidation)));
         } catch (_) {}
       }
     }
 
     if (!result) {
-      throw new Error("Impossible de charger cette page WOL. Lancez DFWol via Lancer-DFWol.bat (serveur local) ou vérifiez votre connexion.");
+      const err = new Error(
+        "Limite temporaire des proxies publics sur le Web. Cliquez sur Réessayer ou configurez un mini-proxy Cloudflare Worker gratuit (30s) dans Widget & Atelier."
+      );
+      err.isProxyRateLimit = true;
+      throw err;
     }
 
-    htmlMemoryCache.set(cleanUrl, result);
-    try {
-      sessionStorage.setItem("dfwol_html_" + cleanUrl, JSON.stringify(result));
-    } catch (_) {}
-
+    setLruCache(cleanUrl, result);
     return result;
   }
 
   function clearHtmlCache() {
     htmlMemoryCache.clear();
-    try {
-      Object.keys(sessionStorage).forEach((k) => {
-        if (k.startsWith("dfwol_html_")) sessionStorage.removeItem(k);
-      });
-    } catch (_) {}
+    proxyCooldowns.clear();
   }
 
   return {

@@ -1,7 +1,7 @@
 node_modules/
-android/
-ios/
-dist-android/
+/android/
+/ios/
+/dist-android/
 *.keystore
 *.jks
 .DS_Store
