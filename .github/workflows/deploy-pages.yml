@@ -17,10 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -34,6 +31,12 @@ jobs:
       - name: Sync web bundle into www/
         run: node scripts/sync-www.js
 
+      - name: Normalize permissions and verify bundle
+        run: |
+          chmod -R a+rX ./www
+          test -f ./www/index.html
+          ls -la ./www
+
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
@@ -42,6 +45,19 @@ jobs:
         with:
           path: "./www"
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 900000
+          error_count: 15

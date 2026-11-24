@@ -32,9 +32,10 @@ function copyRecursiveSync(src, dest) {
   }
 }
 
-if (!fs.existsSync(WWW)) {
-  fs.mkdirSync(WWW, { recursive: true });
+if (fs.existsSync(WWW)) {
+  fs.rmSync(WWW, { recursive: true, force: true });
 }
+fs.mkdirSync(WWW, { recursive: true });
 
 ITEMS_TO_COPY.forEach((item) => {
   copyRecursiveSync(path.join(ROOT, item), path.join(WWW, item));
@@ -43,4 +44,4 @@ ITEMS_TO_COPY.forEach((item) => {
 // Garantit le service brut sur GitHub Pages
 fs.writeFileSync(path.join(WWW, ".nojekyll"), "", "utf8");
 
-console.log("[DFWol] Dossier www/ synchronisé avec succès (.nojekyll inclus).");
+console.log("[DFWol] Dossier www/ nettoyé et synchronisé avec succès (.nojekyll inclus).");
