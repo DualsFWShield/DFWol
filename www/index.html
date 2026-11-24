@@ -104,11 +104,11 @@
         <div class="jw-primary-nav-inner">
           <div class="jw-nav-tabs">
             <button type="button" class="jw-nav-item active" data-tab="dashboard">ACCUEIL</button>
+            <button type="button" class="jw-nav-item" data-tab="bible">BIBLE</button>
             <button type="button" class="jw-nav-item" data-tab="search">RECHERCHE</button>
-            <button type="button" class="jw-nav-item" data-tab="bible">BIBLE &amp; GUIDE</button>
+            <button type="button" class="jw-nav-item" data-tab="reader">RÉUNIONS &amp; PUBS</button>
             <button type="button" class="jw-nav-item" data-tab="videos">VIDÉOS</button>
-            <button type="button" class="jw-nav-item" data-tab="reader">PUBLICATIONS</button>
-            <button type="button" class="jw-nav-item" data-tab="widget">WIDGET &amp; ATELIER</button>
+            <button type="button" class="jw-nav-item" data-tab="settings">PARAMÈTRES</button>
           </div>
           <div class="jw-nav-quick-links">
             <button type="button" id="sb-open-meetings" class="jw-quick-link">📅 Réunions</button>
@@ -149,12 +149,12 @@
             <div class="stat-card">
               <span class="stat-label">Lecture Biblique</span>
               <strong id="dash-reading-progress" class="stat-value">0 / 1189 ch.</strong>
-              <button type="button" class="stat-link-btn" data-goto-tab="widget">Mettre à jour →</button>
+              <button type="button" class="stat-link-btn" data-goto-tab="settings">Mettre à jour →</button>
             </div>
             <div class="stat-card">
               <span class="stat-label">Notes d'étude</span>
               <strong id="dash-notes-count" class="stat-value">0 notes</strong>
-              <button type="button" class="stat-link-btn" data-goto-tab="widget">Ouvrir le carnet →</button>
+              <button type="button" class="stat-link-btn" data-goto-tab="settings">Ouvrir le carnet →</button>
             </div>
           </div>
         </div>
@@ -207,7 +207,7 @@
                 <button type="button" id="btn-dt-open-inapp" class="btn-secondary btn-sm">📖 Lire le verset</button>
                 <button type="button" id="btn-dt-copy" class="btn-secondary btn-sm">📋 Copier</button>
                 <button type="button" id="btn-dt-save-note" class="btn-secondary btn-sm">📝 Annoter</button>
-                <button type="button" class="btn-ghost btn-sm" data-goto-tab="widget">🖼️ Widget</button>
+                <button type="button" class="btn-ghost btn-sm" data-goto-tab="settings">⚙️ Paramètres &amp; Widget</button>
               </div>
             </div>
           </div>
@@ -451,108 +451,170 @@
       </section>
 
       <!-- ==========================================================
-           ONGLET 3 : BIBLE INTÉGRÉE & GUIDE DE RECHERCHE EN LOT
+           ONGLET 3 : BIBLE D'ÉTUDE FAÇON JW LIBRARY + GUIDE EN LOT
            ========================================================== -->
-      <section id="tab-bible" class="tab-panel" aria-labelledby="heading-bible">
-        <div class="section-header">
-          <div>
-            <span class="badge badge-blue">Traduction du monde nouveau (nwtsty)</span>
-            <h1 id="heading-bible">La Bible &amp; Guide de recherche automatique</h1>
-            <p class="section-subtitle">
-              Lisez en français, anglais ou parallèle FR/EN, écoutez l'audio MP3 officiel et extrayez automatiquement les articles du Guide de recherche en lot.
-            </p>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="bible-toolbar">
-            <div class="bible-picker-inline">
-              <select id="picker-book" class="select-input" aria-label="Livre"></select>
-              <select id="picker-chapter" class="select-input" aria-label="Chapitre"></select>
-              <input type="number" id="picker-verse" class="text-input" min="1" max="176" placeholder="Verset" aria-label="Verset" />
-              <button type="button" id="btn-bible-go" class="btn-primary btn-sm">Lire</button>
-            </div>
-            <div class="btn-group">
-              <button type="button" id="btn-bible-prev-ch" class="btn-icon" title="Chapitre précédent">◀</button>
-              <button type="button" id="btn-bible-next-ch" class="btn-icon" title="Chapitre suivant">▶</button>
-              <button type="button" id="btn-bible-audio" class="btn-primary btn-sm">🎧 Écouter (MP3)</button>
-              <button type="button" id="btn-bible-parallel" class="btn-secondary btn-sm">🌍 Parallèle FR/EN</button>
-            </div>
-          </div>
-
-          <div class="bible-split-layout">
-            <div class="bible-chapter-pane">
-              <div class="bible-pane-header">
-                <h2 id="bible-reader-title">Psaumes 83</h2>
-                <span class="badge badge-subtle">Touchez un verset pour son étude</span>
+      <section id="tab-bible" class="tab-panel" aria-labelledby="bible-top-title">
+        <div class="card bible-jwl-shell">
+          <!-- Barre supérieure façon JW Library -->
+          <div class="bible-jwl-topbar" id="bible-top-bar">
+            <div class="bible-jwl-top-left">
+              <button type="button" id="btn-bible-back" class="bible-jwl-back hidden" title="Retour" aria-label="Retour">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-6-6 6 6 6"/></svg>
+              </button>
+              <div>
+                <h1 id="bible-top-title" class="bible-jwl-title">Bible d'étude</h1>
+                <div id="bible-top-sub" class="bible-jwl-subtitle">Français</div>
               </div>
-              <div id="bible-reader-body" class="bible-reader-body"></div>
             </div>
-
-            <div class="bible-study-pane" id="bible-study-panel">
-              <p class="card-helper-text">Sélectionnez un verset pour afficher ses notes d'étude, renvois et articles du Guide de recherche.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Extracteur Guide de Recherche en Lot -->
-        <div class="card mt-lg">
-          <div class="card-header">
-            <div>
-              <span class="badge badge-amber">Extraction en Lot &amp; Playlist Audio</span>
-              <h2 class="card-title">Guide de recherche automatique par verset &amp; en lot</h2>
-            </div>
-            <button type="button" id="btn-sample-batch" class="btn-ghost btn-xs">Charger un exemple</button>
-          </div>
-          <p class="card-helper-text">
-            Collez une liste de versets ou une plage (ex : <code>Ps 83:17-18 ; Jean 17:3 ; Romains 12:1, 2 ; Isaïe 41:10</code>) pour extraire automatiquement tous les articles associés et les écouter ou les compiler.
-          </p>
-          <textarea
-            id="batch-scripture-input"
-            class="textarea-input"
-            rows="3"
-            placeholder="Ex : Psaume 83:18 ; Jean 17:3 ; Proverbes 3:5, 6 ; Révélation 21:3, 4"
-          ></textarea>
-
-          <div class="batch-actions-bar">
-            <label class="checkbox-inline">
-              <input type="checkbox" id="batch-expand-ranges" checked />
-              <span>Développer les plages (ex : 15-18)</span>
-            </label>
-            <button type="button" id="btn-extract-batch-rsg" class="btn-primary btn-sm">🧭 Extraire le Guide en lot</button>
-            <button type="button" id="btn-parse-batch" class="btn-secondary btn-sm">📖 Lister les versets</button>
-            <button type="button" id="btn-clear-batch" class="btn-ghost btn-sm">Effacer</button>
-          </div>
-
-          <div id="batch-rsg-status" class="batch-status-line hidden"></div>
-
-          <div id="batch-rsg-toolbar" class="batch-rsg-toolbar hidden">
-            <div class="btn-group">
-              <button type="button" id="btn-batch-select-all" class="btn-ghost btn-xs">Tout cocher</button>
-              <button type="button" id="btn-batch-unselect-all" class="btn-ghost btn-xs">Tout décocher</button>
-            </div>
-            <div class="btn-group">
-              <button type="button" id="btn-batch-play-audio" class="btn-secondary btn-sm">🎧 Tout écouter (Playlist)</button>
-              <button type="button" id="btn-batch-compile-dossier" class="btn-primary btn-sm">📄 Compiler &amp; Lire le Dossier</button>
+            <div class="bible-jwl-top-actions">
+              <button type="button" id="btn-bible-top-search" class="bible-jwl-iconbtn" title="Rechercher dans la Bible">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="btn-bible-top-audio" class="bible-jwl-iconbtn" title="Écouter le chapitre (MP3 / TTS)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 10v4h4l5 4V6L8 10H4zm12.5-1.5a5 5 0 0 1 0 7m2.8-9.5a8.5 8.5 0 0 1 0 12"/></svg>
+              </button>
+              <button type="button" id="btn-bible-top-batch" class="bible-jwl-iconbtn" title="Guide de recherche en lot">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+              </button>
             </div>
           </div>
 
-          <div id="batch-scripture-results" class="batch-results-grid"></div>
-        </div>
+          <!-- Sous-onglets façon Capture 2 (LIVRES | LECTURE | GUIDE EN LOT | ANNEXES) -->
+          <div class="bible-jwl-subtabs" id="bible-subtabs" role="tablist">
+            <button type="button" class="bible-subtab active" data-bible-subtab="books">LIVRES</button>
+            <button type="button" class="bible-subtab" data-bible-subtab="reader">LECTURE</button>
+            <button type="button" class="bible-subtab" data-bible-subtab="batch">GUIDE EN LOT</button>
+            <button type="button" class="bible-subtab" data-bible-subtab="appendices">ANNEXES</button>
+          </div>
 
-        <div class="card mt-lg">
-          <div class="card-header">
-            <div>
-              <span class="badge badge-blue">66 Livres</span>
-              <h2 class="card-title">Livres de la Bible</h2>
+          <!-- Vue 1 : Grille 66 Livres (6 colonnes, couleurs officielles) -->
+          <div id="bible-view-books" class="bible-subview">
+            <div class="bible-section-heading" id="bible-hebrew-heading">ÉCRITURES HÉBRAÏQUES ET ARAMÉENNES</div>
+            <div id="bible-hebrew-grid" class="bible-jwl-books-grid"></div>
+
+            <div class="bible-section-heading" id="bible-greek-heading">ÉCRITURES GRECQUES CHRÉTIENNES</div>
+            <div id="bible-greek-grid" class="bible-jwl-books-grid"></div>
+          </div>
+
+          <!-- Vue 2 : Grille Chapitres d'un Livre (Capture 1) -->
+          <div id="bible-view-chapters" class="bible-subview hidden">
+            <div id="bible-chapters-grid" class="bible-jwl-chapters-grid"></div>
+            <button type="button" id="btn-bible-book-intro" class="bible-jwl-intro-btn">
+              <span class="bible-intro-icon">i</span>
+              <span id="bible-book-intro-label">Introduction à la Genèse</span>
+            </button>
+          </div>
+
+          <!-- Vue 3 : Lecteur de Chapitre & Guide d'étude par verset -->
+          <div id="bible-view-reader" class="bible-subview hidden">
+            <div class="bible-toolbar">
+              <div class="bible-picker-inline">
+                <select id="picker-book" class="select-input" aria-label="Livre"></select>
+                <select id="picker-chapter" class="select-input" aria-label="Chapitre"></select>
+                <input type="number" id="picker-verse" class="text-input" min="1" max="176" placeholder="Verset" aria-label="Verset" />
+                <button type="button" id="btn-bible-go" class="btn-primary btn-sm">Lire</button>
+              </div>
+              <div class="btn-group">
+                <button type="button" id="btn-bible-prev-ch" class="btn-icon" title="Chapitre précédent">◀</button>
+                <button type="button" id="btn-bible-next-ch" class="btn-icon" title="Chapitre suivant">▶</button>
+                <button type="button" id="btn-bible-audio" class="btn-primary btn-sm">🎧 Écouter</button>
+                <button type="button" id="btn-bible-parallel" class="btn-secondary btn-sm">🌍 Parallèle FR/EN</button>
+              </div>
             </div>
-            <div class="bible-filter-pills" id="bible-category-filters">
-              <button type="button" class="pill-btn active" data-bcat="all">Tous (66)</button>
-              <button type="button" class="pill-btn" data-bcat="hebrew">Écritures hébraïques (39)</button>
-              <button type="button" class="pill-btn" data-bcat="greek">Écritures grecques (27)</button>
+
+            <div class="bible-split-layout">
+              <div class="bible-chapter-pane">
+                <div class="bible-pane-header">
+                  <h2 id="bible-reader-title">Psaumes 83</h2>
+                  <span class="badge badge-subtle">Touchez un verset pour son étude</span>
+                </div>
+                <div id="bible-reader-body" class="bible-reader-body"></div>
+              </div>
+
+              <div class="bible-study-pane" id="bible-study-panel">
+                <p class="card-helper-text">Sélectionnez un verset pour afficher ses notes d'étude, renvois et articles du Guide de recherche.</p>
+              </div>
             </div>
           </div>
-          <div id="bible-books-grid" class="bible-books-grid"></div>
+
+          <!-- Vue 4 : Extracteur Guide de Recherche en Lot -->
+          <div id="bible-view-batch" class="bible-subview hidden">
+            <div class="card-header">
+              <div>
+                <span class="badge badge-amber">Extraction en Lot &amp; Playlist Audio</span>
+                <h2 class="card-title">Guide de recherche automatique par verset &amp; en lot</h2>
+              </div>
+              <button type="button" id="btn-sample-batch" class="btn-ghost btn-xs">Charger un exemple</button>
+            </div>
+            <p class="card-helper-text">
+              Collez une liste de versets ou une plage (ex : <code>Ps 83:17-18 ; Jean 17:3 ; Romains 12:1, 2 ; Isaïe 41:10</code>) pour extraire automatiquement tous les articles associés et les écouter ou les compiler.
+            </p>
+            <textarea
+              id="batch-scripture-input"
+              class="textarea-input"
+              rows="3"
+              placeholder="Ex : Psaume 83:18 ; Jean 17:3 ; Proverbes 3:5, 6 ; Révélation 21:3, 4"
+            ></textarea>
+
+            <div class="batch-actions-bar">
+              <label class="checkbox-inline">
+                <input type="checkbox" id="batch-expand-ranges" checked />
+                <span>Développer les plages (ex : 15-18)</span>
+              </label>
+              <button type="button" id="btn-extract-batch-rsg" class="btn-primary btn-sm">🧭 Extraire le Guide en lot</button>
+              <button type="button" id="btn-parse-batch" class="btn-secondary btn-sm">📖 Lister les versets</button>
+              <button type="button" id="btn-clear-batch" class="btn-ghost btn-sm">Effacer</button>
+            </div>
+
+            <div id="batch-rsg-status" class="batch-status-line hidden"></div>
+
+            <div id="batch-rsg-toolbar" class="batch-rsg-toolbar hidden">
+              <div class="btn-group">
+                <button type="button" id="btn-batch-select-all" class="btn-ghost btn-xs">Tout cocher</button>
+                <button type="button" id="btn-batch-unselect-all" class="btn-ghost btn-xs">Tout décocher</button>
+              </div>
+              <div class="btn-group">
+                <button type="button" id="btn-batch-play-audio" class="btn-secondary btn-sm">🎧 Tout écouter (Playlist)</button>
+                <button type="button" id="btn-batch-compile-dossier" class="btn-primary btn-sm">📄 Compiler &amp; Lire le Dossier</button>
+              </div>
+            </div>
+
+            <div id="batch-scripture-results" class="batch-results-grid"></div>
+          </div>
+
+          <!-- Vue 5 : Introduction & Annexes -->
+          <div id="bible-view-appendices" class="bible-subview hidden">
+            <div class="reference-hub-grid">
+              <button type="button" class="ref-tile" data-open-bible-wol="https://wol.jw.org/fr/wol/publication/r30/lp-f/nwtsty">
+                <span class="ref-tile-icon">📘</span>
+                <div class="ref-tile-info">
+                  <strong>Table des matières (nwtsty)</strong>
+                  <span>Introduction, tableaux et annexes WOL</span>
+                </div>
+              </button>
+              <button type="button" class="ref-tile" data-open-bible-wol="https://wol.jw.org/fr/wol/lv/r30/lp-f/0/21275">
+                <span class="ref-tile-icon">🧭</span>
+                <div class="ref-tile-info">
+                  <strong>Guide de recherche</strong>
+                  <span>Ouvrir l'index général dans l'app</span>
+                </div>
+              </button>
+              <button type="button" class="ref-tile" data-open-bible-wol="https://wol.jw.org/fr/wol/lv/r30/lp-f/0/2">
+                <span class="ref-tile-icon">🏛️</span>
+                <div class="ref-tile-info">
+                  <strong>Étude perspicace (it)</strong>
+                  <span>Encyclopédie biblique</span>
+                </div>
+              </button>
+              <button type="button" class="ref-tile" data-open-bible-wol="https://wol.jw.org/fr/wol/lv/r30/lp-f/0/22625">
+                <span class="ref-tile-icon">🗂️</span>
+                <div class="ref-tile-info">
+                  <strong>Index des publications (dx)</strong>
+                  <span>Répertoire thématique complet</span>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -658,6 +720,7 @@
 
           <div class="reader-quick-strip">
             <button type="button" class="chip-btn" id="rq-meetings">📅 Réunion de la semaine</button>
+            <button type="button" class="chip-btn" data-goto-tab="videos">🎬 Vidéos &amp; Sous-titres</button>
             <button type="button" class="chip-btn" id="rq-dailytext">🗓️ Texte du jour</button>
             <button type="button" class="chip-btn" id="rq-insight">🏛️ Étude perspicace</button>
             <button type="button" class="chip-btn" id="rq-rsg">🧭 Guide de recherche</button>
@@ -679,22 +742,77 @@
       </section>
 
       <!-- ==========================================================
-           ONGLET 6 : WIDGET & ATELIER D'ÉTUDE
+           ONGLET 6 : PARAMÈTRES, EXPORT DE DONNÉES, WIDGET & NOTES
            ========================================================== -->
-      <section id="tab-widget" class="tab-panel" aria-labelledby="heading-widget">
+      <section id="tab-settings" class="tab-panel" aria-labelledby="heading-settings">
         <div class="section-header">
           <div>
-            <span class="badge badge-blue">Capacitor Native Widget • PWA • Étude</span>
-            <h1 id="heading-widget">Widget Texte du jour &amp; Atelier</h1>
+            <span class="badge badge-blue">Préférences • Sauvegarde • Widget • Étude</span>
+            <h1 id="heading-settings">Paramètres &amp; Données</h1>
           </div>
           <div class="header-actions-row">
-            <button type="button" id="btn-export-data" class="btn-secondary btn-sm">💾 Exporter JSON</button>
-            <label for="input-import-data" class="btn-ghost btn-sm cursor-pointer">📂 Importer JSON</label>
+            <button type="button" id="btn-export-data" class="btn-primary btn-sm">💾 Exporter tout (.JSON)</button>
+            <button type="button" id="btn-export-txt" class="btn-secondary btn-sm">📝 Exporter Notes (.TXT)</button>
+            <label for="input-import-data" class="btn-ghost btn-sm cursor-pointer">📂 Importer (.JSON)</label>
             <input type="file" id="input-import-data" accept=".json" class="hidden" />
           </div>
         </div>
 
-        <div class="widget-studio-grid">
+        <!-- Carte Préférences & Sauvegarde -->
+        <div class="settings-top-grid">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <span class="badge badge-blue">Apparence &amp; Synthèse Vocale</span>
+                <h2 class="card-title">Préférences générales</h2>
+              </div>
+            </div>
+            <div class="search-filters-grid">
+              <div class="form-group">
+                <label for="settings-theme-select">Thème</label>
+                <select id="settings-theme-select" class="select-input">
+                  <option value="light">Clair (JW Library / JW.org)</option>
+                  <option value="dark">Sombre</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="settings-lang-select">Langue d'étude</label>
+                <select id="settings-lang-select" class="select-input">
+                  <option value="fr">Français</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label for="settings-voice-select">Voix TTS neuronale par défaut</label>
+              <select id="settings-voice-select" class="select-input"></select>
+            </div>
+            <label class="checkbox-inline">
+              <input type="checkbox" id="settings-tts-skip-refs" checked />
+              <span>Ignorer les versets entre parenthèses et cotes (<code>w24...</code>) pendant la lecture vocale</span>
+            </label>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <span class="badge badge-emerald">Portabilité &amp; Sauvegarde complète</span>
+                <h2 class="card-title">Vos données sauvegardées</h2>
+              </div>
+            </div>
+            <div class="settings-stats-grid">
+              <div class="settings-stat-pill"><strong id="settings-stats-notes">0</strong><span>Notes</span></div>
+              <div class="settings-stat-pill"><strong id="settings-stats-answers">0</strong><span>Réponses cahiers</span></div>
+              <div class="settings-stat-pill"><strong id="settings-stats-chapters">0 / 1189</strong><span>Chapitres lus</span></div>
+              <div class="settings-stat-pill"><strong id="settings-stats-searches">0</strong><span>Favoris</span></div>
+            </div>
+            <p class="card-helper-text" style="margin-top:0.75rem;">
+              L'export JSON inclut vos notes, toutes vos réponses saisies dans les cahiers/Tour de Garde, votre suivi des 1 189 chapitres, vos recherches sauvegardées et vos préférences.
+            </p>
+          </div>
+        </div>
+
+        <div class="widget-studio-grid mt-lg">
           <div class="card">
             <div class="card-header">
               <div>
@@ -875,36 +993,54 @@
     </footer>
   </div>
 
-  <!-- Barre Audio Persistante Globale (Style JW Media Player #292929 / #4a6da7) -->
+  <!-- Barre Audio Persistante Pro & Épurée -->
   <div id="global-audio-bar" class="global-audio-bar hidden" aria-label="Lecteur audio">
-    <div class="audio-bar-info">
-      <span id="audio-engine-badge" class="badge badge-blue">Audio</span>
-      <div class="audio-bar-titles">
-        <strong id="audio-bar-title">DFWol Audio</strong>
-        <small id="audio-bar-sub">Prêt</small>
+    <div class="audio-progress-edge">
+      <input type="range" id="audio-progress-range" min="0" max="100" value="0" class="audio-edge-range" aria-label="Progression audio" />
+    </div>
+
+    <div class="audio-bar-main">
+      <div class="audio-bar-info">
+        <span id="audio-engine-badge" class="audio-badge-pill">IA</span>
+        <div class="audio-bar-titles">
+          <strong id="audio-bar-title">DFWol Audio</strong>
+          <small><span id="audio-bar-sub">Prêt</span> · <span id="audio-time-label" class="audio-time-label">0:00</span></small>
+        </div>
+      </div>
+
+      <div class="audio-bar-controls">
+        <button type="button" id="audio-btn-prev" class="audio-ctrl-btn" title="Précédent" aria-label="Précédent">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button type="button" id="audio-btn-back15" class="audio-ctrl-btn audio-ctrl-txt" title="-15s">-15</button>
+        <button type="button" id="audio-btn-play" class="audio-play-fab" title="Lecture / Pause" aria-label="Lecture / Pause">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l10.5-6.5z"/></svg>
+        </button>
+        <button type="button" id="audio-btn-fwd15" class="audio-ctrl-btn audio-ctrl-txt" title="+15s">+15</button>
+        <button type="button" id="audio-btn-next" class="audio-ctrl-btn" title="Suivant" aria-label="Suivant">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </button>
+      </div>
+
+      <div class="audio-bar-extra">
+        <button type="button" id="audio-btn-rate" class="audio-pill-btn" title="Vitesse">1×</button>
+        <button type="button" id="audio-btn-voice-toggle" class="audio-pill-btn" title="Choisir la voix">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 4a3 3 0 0 1 3 3v5a3 3 0 1 1-6 0V7a3 3 0 0 1 3-3zm-6 8a6 6 0 0 0 12 0m-6 6v3"/></svg>
+          <span>Voix</span>
+        </button>
+        <button type="button" id="audio-btn-queue" class="audio-pill-btn" title="File d'attente">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 7h12M4 12h12M4 17h8m7-3v6m-3-3h6"/></svg>
+          <span id="audio-queue-count">0</span>
+        </button>
+        <button type="button" id="audio-btn-close" class="audio-ctrl-btn" title="Fermer" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
       </div>
     </div>
 
-    <div class="audio-bar-controls">
-      <button type="button" id="audio-btn-prev" class="btn-icon-xs" title="Précédent">⏮</button>
-      <button type="button" id="audio-btn-back15" class="btn-icon-xs" title="-15s">-15s</button>
-      <button type="button" id="audio-btn-play" class="btn-primary btn-sm" title="Lecture / Pause">▶</button>
-      <button type="button" id="audio-btn-fwd15" class="btn-icon-xs" title="+15s">+15s</button>
-      <button type="button" id="audio-btn-next" class="btn-icon-xs" title="Suivant">⏭</button>
-    </div>
-
-    <div class="audio-bar-progress">
-      <input type="range" id="audio-progress-range" min="0" max="100" value="0" class="range-input" aria-label="Progression audio" />
-      <span id="audio-time-label" class="audio-time-label">0:00</span>
-    </div>
-
-    <div class="audio-bar-extra">
-      <select id="audio-voice-select" class="audio-voice-select" aria-label="Voix TTS" title="Choisir la voix neuronale"></select>
-      <button type="button" id="audio-btn-rate" class="btn-ghost btn-xs" title="Vitesse">1×</button>
-      <button type="button" id="audio-btn-queue" class="btn-secondary btn-xs" title="File d'attente">
-        📋 <span id="audio-queue-count">0</span>
-      </button>
-      <button type="button" id="audio-btn-close" class="btn-icon-xs" title="Fermer">✕</button>
+    <div id="audio-voice-popover" class="audio-voice-popover hidden">
+      <label for="audio-voice-select">Voix neuronale :</label>
+      <select id="audio-voice-select" class="audio-voice-select" aria-label="Voix TTS"></select>
     </div>
   </div>
 
@@ -920,14 +1056,28 @@
     <div id="audio-queue-list" class="audio-queue-list"></div>
   </div>
 
-  <!-- Barre de Navigation Inférieure Mobile (#292929) -->
+  <!-- Barre de Navigation Inférieure Mobile (copiée JW Library : Accueil, Bible, Recherche, Réunions, Paramètres) -->
   <nav class="mobile-bottom-nav" aria-label="Navigation mobile">
-    <button type="button" class="mbn-item active" data-tab="dashboard"><span>⚡</span><small>Accueil</small></button>
-    <button type="button" class="mbn-item" data-tab="search"><span>🔍</span><small>Chercher</small></button>
-    <button type="button" class="mbn-item" data-tab="bible"><span>📖</span><small>Bible</small></button>
-    <button type="button" class="mbn-item" data-tab="videos"><span>🎬</span><small>Vidéos</small></button>
-    <button type="button" class="mbn-item" data-tab="reader"><span>📚</span><small>Pubs</small></button>
-    <button type="button" class="mbn-item" data-tab="widget"><span>🗓️</span><small>Widget</small></button>
+    <button type="button" class="mbn-item active" data-tab="dashboard">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+      <small>Accueil</small>
+    </button>
+    <button type="button" class="mbn-item" data-tab="bible">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M2 6.5c3-.8 6.5.2 10 2.5 3.5-2.3 7-3.3 10-2.5v11.5c-3-.8-6.5.2-10 2.5-3.5-2.3-7-3.3-10-2.5zM12 9v11.5"/></svg>
+      <small>Bible</small>
+    </button>
+    <button type="button" class="mbn-item" data-tab="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <small>Recherche</small>
+    </button>
+    <button type="button" class="mbn-item" data-tab="reader">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="2.3" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M7 11.5h10l-1 4H8zM9 15.5l-1 5m8-5 1 5"/></svg>
+      <small>Réunions</small>
+    </button>
+    <button type="button" class="mbn-item" data-tab="settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 0 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a1.9 1.9 0 0 1-3.8 0v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a1.9 1.9 0 0 1 0-3.8h.2a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 0 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 .9-1.5V3a1.9 1.9 0 0 1 3.8 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5.9H21a1.9 1.9 0 0 1 0 3.8h-.2a1.6 1.6 0 0 0-1.4 1z"/></svg>
+      <small>Paramètres</small>
+    </button>
   </nav>
 
   <!-- Modale Aperçu Rapide de Verset (Scripture Peek) -->

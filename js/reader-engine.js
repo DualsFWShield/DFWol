@@ -639,6 +639,7 @@ window.DFWolReader = (function () {
     const ch = Math.max(1, Math.min(book.chapters, Number(chapter) || 1));
 
     currentBibleState = { bookNum: book.num, chapter: ch, verse: Number(highlightVerse) || 1, lang: activeLang, parallel: isParallel };
+    if (window.DFWolShowBibleView) window.DFWolShowBibleView("reader", book.num);
 
     const readerTitle = document.getElementById("bible-reader-title");
     const readerBody = document.getElementById("bible-reader-body");

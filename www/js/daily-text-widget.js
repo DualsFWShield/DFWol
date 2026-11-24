@@ -7,7 +7,7 @@
 window.DFWolDailyText = (function () {
   "use strict";
 
-  const STORAGE_CACHE_PREFIX = "dfwol_dt_cache_v3_";
+  const STORAGE_CACHE_PREFIX = "dfwol_dt_cache_v4_";
   const CAPACITOR_WIDGET_KEY = "dfwol_daily_text_widget_payload";
 
   // Bibliothèque hors-ligne bilingue FR & EN
@@ -294,9 +294,15 @@ window.DFWolDailyText = (function () {
         let scriptureText = fullTheme;
         let scriptureRef = lang === "en" ? "Daily Text" : "Texte du jour";
         const parenMatch = fullTheme.match(/^(.*)\(([^()]+)\)\.?$/);
+        const dashMatch = fullTheme.match(/^(.*?)\s*[—–]\s*([1-3]?\s*[A-Za-zÀ-ÖØ-öø-ÿ]{2,20}\.?\s+\d+[:.,\d\s–-]*)\.?$/);
         if (parenMatch) {
-          scriptureText = lang === "en" ? `“${parenMatch[1].trim()}”` : `« ${parenMatch[1].trim()} »`;
-          scriptureRef = parenMatch[2].trim();
+          const quoteCore = parenMatch[1].replace(/^[«“"\s]+|[»”".\s]+$/g, "").trim();
+          scriptureText = lang === "en" ? `“${quoteCore}”` : `« ${quoteCore} »`;
+          scriptureRef = window.DFWolBible.expandScriptureRefFull(parenMatch[2].trim(), lang);
+        } else if (dashMatch) {
+          const quoteCore = dashMatch[1].replace(/^[«“"\s]+|[»”".\s]+$/g, "").trim();
+          scriptureText = lang === "en" ? `“${quoteCore}”` : `« ${quoteCore} »`;
+          scriptureRef = window.DFWolBible.expandScriptureRefFull(dashMatch[2].trim(), lang);
         }
 
         const refs = window.DFWolBible.parseScriptureReferences(scriptureRef, lang);
@@ -397,23 +403,16 @@ window.DFWolDailyText = (function () {
     ctx.fillStyle = pal.bg1;
     ctx.fillRect(0, 0, W, H);
 
-    // Bande supérieure JW.org (#4a6da7) + carré logo
-    ctx.fillStyle = "#4a6da7";
-    ctx.fillRect(0, 0, W, 14);
-    ctx.fillRect(72, 64, 96, 96);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 38px Noto Sans, Arial, sans-serif";
-    ctx.fillText("DF", 94, 114);
-    ctx.font = "bold 24px Noto Sans, Arial, sans-serif";
-    ctx.fillText("WOL", 90, 144);
+    // Bandeau supérieur DFWol Saphir (#102547)
+    ctx.fillStyle = "#102547";
+    ctx.fillRect(0, 0, W, 168);
+    ctx.fillStyle = "#f4c45d";
+    ctx.font = "bold 26px Noto Sans, Arial, sans-serif";
+    ctx.fillText(`DFWOL • TEXTE DU JOUR • ${summaries.oneWord.toUpperCase()}`, 72, 82);
 
-    ctx.fillStyle = pal.accent;
-    ctx.font = "bold 24px Noto Sans, Arial, sans-serif";
-    ctx.fillText(`TEXTE DU JOUR • ${summaries.oneWord.toUpperCase()}`, 192, 102);
-
-    ctx.fillStyle = pal.sub;
-    ctx.font = "600 28px Noto Sans, Arial, sans-serif";
-    ctx.fillText(dtData.formattedDate || "", 192, 146);
+    ctx.fillStyle = "#e8effb";
+    ctx.font = "600 30px Noto Sans, Arial, sans-serif";
+    ctx.fillText(dtData.formattedDate || "", 72, 132);
 
     ctx.strokeStyle = pal.border;
     ctx.lineWidth = 2;

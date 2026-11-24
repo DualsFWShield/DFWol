@@ -52,7 +52,7 @@
             android:paddingTop="2dp"
             android:paddingRight="6dp"
             android:paddingBottom="2dp"
-            android:text="WOL ↗"
+            android:text="Lire →"
             android:textColor="#E8EFFB"
             android:textSize="11sp"
             android:textStyle="bold" />

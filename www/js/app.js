@@ -111,6 +111,7 @@
 
   function switchTab(tabId, options = {}) {
     if (!tabId) return;
+    if (tabId === "widget") tabId = "settings";
     if (!options.fromBack && state.activeTab !== tabId) {
       if (tabHistory[tabHistory.length - 1] !== tabId) {
         tabHistory.push(tabId);
@@ -132,13 +133,40 @@
       state.videosLoadedLang = state.lang;
       window.DFWolVideo.loadVideoCategories(state.lang);
     }
-    if (tabId === "bible" && !state.bibleLoadedOnce && window.DFWolReader) {
-      state.bibleLoadedOnce = true;
-      const bNum = Number(document.getElementById("picker-book")?.value || 19);
-      const ch = Number(document.getElementById("picker-chapter")?.value || 83);
-      window.DFWolReader.openBibleChapter(bNum, ch, 18, state.lang);
+    if (tabId === "reader" && window.DFWolReader && !window.DFWolReader.getCurrentArticleData() && !options.skipAutoMeetings) {
+      const info = window.DFWolBible.getIsoWeekInfo(new Date(), state.lang);
+      window.DFWolReader.openArticleInApp(info.wolMeetingsUrl, { lang: state.lang, skipTabSwitch: true });
+    }
+    if (tabId === "settings") {
+      updateSettingsStats();
     }
   }
+
+  function openBibleAt(bookNum, chapter, verse = 1, lang = state.lang) {
+    switchTab("bible");
+    setBibleView("reader", bookNum);
+    document.getElementById("picker-book").value = String(bookNum);
+    populateChapterSelect(bookNum, chapter);
+    window.DFWolReader.openBibleChapter(bookNum, chapter, verse, lang);
+  }
+
+  window.DFWolOpenDailyText = async function () {
+    state.dtDate = new Date();
+    state.dtSummaryMode = "full";
+    saveState();
+    switchTab("dashboard");
+    document.querySelectorAll("[data-dt-view]").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-dt-view") === "full");
+    });
+    await refreshDailyText(false);
+    const dtCard = document.querySelector(".card-daily-text");
+    if (dtCard) {
+      dtCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      dtCard.classList.remove("dt-focus-flash");
+      void dtCard.offsetWidth;
+      dtCard.classList.add("dt-focus-flash");
+    }
+  };
 
   function handleBackNavigation() {
     const lightbox = document.getElementById("image-lightbox-modal");
@@ -170,6 +198,15 @@
       const vidEl = document.getElementById("dfwol-video-el");
       if (vidEl && !vidEl.paused) vidEl.pause();
       vidStage.classList.add("hidden");
+      return;
+    }
+
+    if (state.activeTab === "bible" && activeBibleSubtab !== "books") {
+      if (activeBibleSubtab === "reader") {
+        setBibleView("chapters", selectedBibleBookNum);
+      } else {
+        setBibleView("books");
+      }
       return;
     }
 
@@ -254,6 +291,8 @@
   function applyTheme(theme) {
     state.theme = theme === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", state.theme);
+    const themeSel = document.getElementById("settings-theme-select");
+    if (themeSel) themeSel.value = state.theme;
     saveState();
   }
 
@@ -263,6 +302,8 @@
 
     const sel = document.getElementById("global-lang-select");
     if (sel) sel.value = lang;
+    const settingsLang = document.getElementById("settings-lang-select");
+    if (settingsLang) settingsLang.value = lang;
 
     document.querySelectorAll("[data-quick-lang]").forEach((btn) => {
       btn.classList.toggle("active", btn.getAttribute("data-quick-lang") === lang);
@@ -550,8 +591,50 @@
   }
 
   // ==========================================================================
-  // Bible & Extracteur Guide de Recherche en Lot
+  // Bible façon JW Library (Livres 6 colonnes -> Chapitres -> Lecture) + Lot
   // ==========================================================================
+
+  let activeBibleSubtab = "books";
+  let selectedBibleBookNum = 1;
+
+  function setBibleView(viewName, bookNum = selectedBibleBookNum) {
+    activeBibleSubtab = viewName;
+    if (bookNum) selectedBibleBookNum = Number(bookNum);
+
+    const viewIds = ["books", "chapters", "reader", "batch", "appendices"];
+    viewIds.forEach((v) => {
+      document.getElementById(`bible-view-${v}`)?.classList.toggle("hidden", v !== viewName);
+    });
+
+    const subtabHighlight = viewName === "chapters" ? "books" : viewName;
+    document.querySelectorAll("[data-bible-subtab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.getAttribute("data-bible-subtab") === subtabHighlight);
+    });
+
+    const backBtn = document.getElementById("btn-bible-back");
+    const topTitle = document.getElementById("bible-top-title");
+    const topSub = document.getElementById("bible-top-sub");
+    const book = window.DFWolBible.getBookByNumber(selectedBibleBookNum);
+    const bookName = window.DFWolBible.getBookDisplayName(book, state.lang);
+    const studyTitle = state.lang === "en" ? "Study Bible" : "Bible d'étude";
+    const langLabel = state.lang === "en" ? "English" : "Français";
+
+    if (viewName === "chapters") {
+      backBtn?.classList.remove("hidden");
+      if (topTitle) topTitle.textContent = bookName;
+      if (topSub) topSub.textContent = studyTitle;
+      renderBibleChaptersGrid(selectedBibleBookNum);
+    } else if (viewName === "reader") {
+      backBtn?.classList.remove("hidden");
+      const curCh = window.DFWolReader?.getCurrentBibleState()?.chapter || 1;
+      if (topTitle) topTitle.textContent = `${bookName} ${curCh}`;
+      if (topSub) topSub.textContent = studyTitle;
+    } else {
+      backBtn?.classList.add("hidden");
+      if (topTitle) topTitle.textContent = studyTitle;
+      if (topSub) topSub.textContent = langLabel;
+    }
+  }
 
   function populateBibleSelects() {
     const books = window.DFWolBible.BIBLE_BOOKS;
@@ -585,20 +668,54 @@
     chSelect.value = String(Math.min(book.chapters, defaultCh));
   }
 
-  function renderBibleBooksGrid(cat = "all") {
-    const grid = document.getElementById("bible-books-grid");
-    if (!grid) return;
-    const filtered = window.DFWolBible.BIBLE_BOOKS.filter((b) => cat === "all" || b.section === cat);
-    grid.innerHTML = filtered
-      .map(
-        (b) => `
-        <button type="button" class="bible-book-tile ${b.section}" data-pick-book="${b.num}">
-          <div class="book-tile-top"><span>#${b.num}</span><span>${b.chapters} ch.</span></div>
-          <div class="book-tile-name">${window.DFWolBible.getBookDisplayName(b, state.lang)}</div>
-        </button>
-      `
-      )
-      .join("");
+  function renderBibleBooksGrid() {
+    const hebGrid = document.getElementById("bible-hebrew-grid");
+    const grkGrid = document.getElementById("bible-greek-grid");
+    const hebHead = document.getElementById("bible-hebrew-heading");
+    const grkHead = document.getElementById("bible-greek-heading");
+
+    if (hebHead) {
+      hebHead.textContent = state.lang === "en" ? "HEBREW-ARAMAIC SCRIPTURES" : "ÉCRITURES HÉBRAÏQUES ET ARAMÉENNES";
+    }
+    if (grkHead) {
+      grkHead.textContent = state.lang === "en" ? "CHRISTIAN GREEK SCRIPTURES" : "ÉCRITURES GRECQUES CHRÉTIENNES";
+    }
+
+    const renderTile = (b) => {
+      const abbr = state.lang === "en" ? b.abbrEn || b.abbr : b.abbr;
+      const fullName = window.DFWolBible.getBookDisplayName(b, state.lang);
+      return `<button type="button" class="bible-jwl-tile group-${b.group}" data-pick-book="${b.num}" title="${fullName}">${window.DFWolSearch.escapeHtml(abbr)}</button>`;
+    };
+
+    if (hebGrid) {
+      hebGrid.innerHTML = window.DFWolBible.BIBLE_BOOKS.filter((b) => b.section === "hebrew")
+        .map(renderTile)
+        .join("");
+    }
+    if (grkGrid) {
+      grkGrid.innerHTML = window.DFWolBible.BIBLE_BOOKS.filter((b) => b.section === "greek")
+        .map(renderTile)
+        .join("");
+    }
+  }
+
+  function renderBibleChaptersGrid(bookNum) {
+    const grid = document.getElementById("bible-chapters-grid");
+    const introLabel = document.getElementById("bible-book-intro-label");
+    const book = window.DFWolBible.getBookByNumber(bookNum);
+    if (!grid || !book) return;
+
+    const bookName = window.DFWolBible.getBookDisplayName(book, state.lang);
+    const readSet = new Set(state.readingProgress[String(book.num)] || []);
+    let html = "";
+    for (let ch = 1; ch <= book.chapters; ch++) {
+      html += `<button type="button" class="bible-jwl-ch-tile ${readSet.has(ch) ? "is-read" : ""}" data-pick-chapter="${ch}">${ch}</button>`;
+    }
+    grid.innerHTML = html;
+
+    if (introLabel) {
+      introLabel.textContent = state.lang === "en" ? `Introduction to ${bookName}` : `Introduction à ${bookName}`;
+    }
   }
 
   async function runBatchResearchGuideExtraction() {
@@ -782,10 +899,7 @@
       if (!val) return;
       const v = window.DFWolBible.parseSingleVerseQuery(val, state.lang);
       if (v) {
-        switchTab("bible");
-        document.getElementById("picker-book").value = String(v.bookNum);
-        populateChapterSelect(v.bookNum, v.chapter);
-        window.DFWolReader.openBibleChapter(v.bookNum, v.chapter, v.verseStart || 1, state.lang);
+        openBibleAt(v.bookNum, v.chapter, v.verseStart || 1, state.lang);
       } else {
         switchTab("search");
         document.getElementById("adv-search-input").value = val;
@@ -805,8 +919,8 @@
       { label: "🔍 Recherche Totale (Vidéos, Pubs, Bible, Audio)", fn: () => switchTab("search") },
       { label: "📖 Bible Intégrée & Guide de Recherche en Lot", fn: () => switchTab("bible") },
       { label: "🎬 Vidéos & Extracteur de Sous-titres", fn: () => switchTab("videos") },
-      { label: "📚 Lecteur de Publications", fn: () => switchTab("reader") },
-      { label: "🗓️ Widget, Notes & Atelier", fn: () => switchTab("widget") },
+      { label: "📚 Réunions & Publications", fn: () => switchTab("reader") },
+      { label: "⚙️ Paramètres, Export & Notes", fn: () => switchTab("settings") },
       { label: "🌍 Basculer FR ↔ EN", fn: () => updateGlobalLanguage(state.lang === "fr" ? "en" : "fr") },
       { label: "🌓 Thème Clair / Sombre", fn: () => applyTheme(state.theme === "dark" ? "light" : "dark") }
     ];
@@ -863,7 +977,7 @@
         backdrop.classList.add("hidden");
         document.getElementById("scripture-peek-modal")?.classList.add("hidden");
       } else if (e.altKey && /^[1-6]$/.test(e.key)) {
-        const map = { "1": "dashboard", "2": "search", "3": "bible", "4": "videos", "5": "reader", "6": "widget" };
+        const map = { "1": "dashboard", "2": "bible", "3": "search", "4": "reader", "5": "videos", "6": "settings" };
         if (map[e.key]) {
           e.preventDefault();
           switchTab(map[e.key]);
@@ -970,10 +1084,11 @@
     const speakDailyText = () => {
       if (!state.dtCurrentData || !window.DFWolAudio) return;
       const d = state.dtCurrentData;
+      const fullRef = window.DFWolBible.expandScriptureRefFull(d.scriptureRef, d.lang);
       window.DFWolAudio.playTrack({
-        title: `Texte du jour — ${d.scriptureRef}`,
+        title: `Texte du jour — ${fullRef}`,
         subtitle: d.formattedDate,
-        text: `${d.formattedDate}. ${d.scriptureText}. ${d.scriptureRef}. ${d.commentary}`,
+        text: `${d.formattedDate}. ${d.scriptureText}. ${fullRef}. ${d.commentary}`,
         lang: d.lang,
         mode: "tts"
       });
@@ -986,8 +1101,7 @@
       const refs = window.DFWolBible.parseScriptureReferences(state.dtCurrentData.scriptureRef, state.lang);
       if (refs.length > 0) {
         const r = refs[0];
-        switchTab("bible");
-        window.DFWolReader.openBibleChapter(r.bookNum, r.chapter, r.verseStart || 1, state.lang);
+        openBibleAt(r.bookNum, r.chapter, r.verseStart || 1, state.lang);
       }
     };
     document.getElementById("dt-scripture-ref-btn")?.addEventListener("click", openDtVerseInApp);
@@ -1014,16 +1128,14 @@
       const val = document.getElementById("quick-verse-input")?.value || "";
       const refs = window.DFWolBible.parseScriptureReferences(val, state.lang);
       if (!refs.length) return showToast("Référence non reconnue.");
-      switchTab("bible");
-      window.DFWolReader.openBibleChapter(refs[0].bookNum, refs[0].chapter, refs[0].verseStart || 1, state.lang);
+      openBibleAt(refs[0].bookNum, refs[0].chapter, refs[0].verseStart || 1, state.lang);
     });
     document.querySelectorAll("[data-sample-verse]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const val = btn.getAttribute("data-sample-verse");
         const refs = window.DFWolBible.parseScriptureReferences(val, state.lang);
         if (refs.length) {
-          switchTab("bible");
-          window.DFWolReader.openBibleChapter(refs[0].bookNum, refs[0].chapter, refs[0].verseStart || 1, state.lang);
+          openBibleAt(refs[0].bookNum, refs[0].chapter, refs[0].verseStart || 1, state.lang);
         }
       });
     });
@@ -1140,8 +1252,7 @@
       const bibBtn = e.target.closest("[data-open-bible-chapter]");
       if (bibBtn) {
         const [b, c, v] = bibBtn.getAttribute("data-open-bible-chapter").split(":").map(Number);
-        switchTab("bible");
-        window.DFWolReader.openBibleChapter(b, c, v || 1, state.lang);
+        openBibleAt(b, c, v || 1, state.lang);
         return;
       }
 
@@ -1190,7 +1301,66 @@
       }
     });
 
-    // Bible Intégrée & Guide de Recherche en Lot
+    // Bible façon JW Library + Navigation Livres -> Chapitres -> Lecture
+    document.querySelectorAll("[data-bible-subtab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const st = btn.getAttribute("data-bible-subtab");
+        if (st === "reader" && !window.DFWolReader.getCurrentBibleState().primaryData) {
+          openBibleAt(selectedBibleBookNum, 1, 1, state.lang);
+        } else {
+          setBibleView(st, selectedBibleBookNum);
+        }
+      });
+    });
+
+    document.getElementById("btn-bible-back")?.addEventListener("click", () => {
+      if (activeBibleSubtab === "reader") setBibleView("chapters", selectedBibleBookNum);
+      else setBibleView("books");
+    });
+
+    document.getElementById("btn-bible-top-search")?.addEventListener("click", () => switchTab("search"));
+    document.getElementById("btn-bible-top-batch")?.addEventListener("click", () => setBibleView("batch"));
+    document.getElementById("btn-bible-top-audio")?.addEventListener("click", () => {
+      const cur = window.DFWolReader.getCurrentBibleState();
+      window.DFWolReader.playBibleChapterAudio(cur.bookNum || selectedBibleBookNum, cur.chapter || 1, state.lang);
+    });
+
+    const handleBookPick = (e) => {
+      const tile = e.target.closest("[data-pick-book]");
+      if (!tile) return;
+      const bNum = Number(tile.getAttribute("data-pick-book"));
+      document.getElementById("picker-book").value = String(bNum);
+      populateChapterSelect(bNum, 1);
+      setBibleView("chapters", bNum);
+    };
+    document.getElementById("bible-hebrew-grid")?.addEventListener("click", handleBookPick);
+    document.getElementById("bible-greek-grid")?.addEventListener("click", handleBookPick);
+
+    document.getElementById("bible-chapters-grid")?.addEventListener("click", (e) => {
+      const tile = e.target.closest("[data-pick-chapter]");
+      if (!tile) return;
+      const ch = Number(tile.getAttribute("data-pick-chapter"));
+      openBibleAt(selectedBibleBookNum, ch, 1, state.lang);
+    });
+
+    document.getElementById("btn-bible-book-intro")?.addEventListener("click", () => {
+      const cfg = window.DFWolBible.getLangConfig(state.lang);
+      window.DFWolReader.openArticleInApp(
+        `https://wol.jw.org/${cfg.code}/wol/b/${cfg.r}/${cfg.lp}/nwtsty/${selectedBibleBookNum}/1`,
+        { lang: state.lang }
+      );
+    });
+
+    document.querySelectorAll("[data-open-bible-wol]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        let u = btn.getAttribute("data-open-bible-wol");
+        if (state.lang === "en") {
+          u = u.replace("/fr/wol/", "/en/wol/").replace("/r30/lp-f/", "/r1/lp-e/");
+        }
+        window.DFWolReader.openArticleInApp(u, { lang: state.lang });
+      });
+    });
+
     document.getElementById("picker-book")?.addEventListener("change", (e) => {
       populateChapterSelect(Number(e.target.value), 1);
     });
@@ -1198,21 +1368,19 @@
       const b = Number(document.getElementById("picker-book")?.value || 1);
       const c = Number(document.getElementById("picker-chapter")?.value || 1);
       const v = Number(document.getElementById("picker-verse")?.value || 1);
-      window.DFWolReader.openBibleChapter(b, c, v, state.lang);
+      openBibleAt(b, c, v, state.lang);
     });
     document.getElementById("btn-bible-prev-ch")?.addEventListener("click", () => {
       const cur = window.DFWolReader.getCurrentBibleState();
       if (cur.chapter > 1) {
-        populateChapterSelect(cur.bookNum, cur.chapter - 1);
-        window.DFWolReader.openBibleChapter(cur.bookNum, cur.chapter - 1, 1, state.lang);
+        openBibleAt(cur.bookNum, cur.chapter - 1, 1, state.lang);
       }
     });
     document.getElementById("btn-bible-next-ch")?.addEventListener("click", () => {
       const cur = window.DFWolReader.getCurrentBibleState();
       const book = window.DFWolBible.getBookByNumber(cur.bookNum);
       if (cur.chapter < book.chapters) {
-        populateChapterSelect(cur.bookNum, cur.chapter + 1);
-        window.DFWolReader.openBibleChapter(cur.bookNum, cur.chapter + 1, 1, state.lang);
+        openBibleAt(cur.bookNum, cur.chapter + 1, 1, state.lang);
       }
     });
     document.getElementById("btn-bible-audio")?.addEventListener("click", () => {
@@ -1228,22 +1396,6 @@
       if (row) {
         window.DFWolReader.renderVerseStudyPanel(Number(row.getAttribute("data-select-verse")));
       }
-    });
-
-    document.getElementById("bible-category-filters")?.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-bcat]");
-      if (!btn) return;
-      document.querySelectorAll("#bible-category-filters .pill-btn").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      renderBibleBooksGrid(btn.getAttribute("data-bcat"));
-    });
-    document.getElementById("bible-books-grid")?.addEventListener("click", (e) => {
-      const tile = e.target.closest("[data-pick-book]");
-      if (!tile) return;
-      const bNum = Number(tile.getAttribute("data-pick-book"));
-      document.getElementById("picker-book").value = String(bNum);
-      populateChapterSelect(bNum, 1);
-      window.DFWolReader.openBibleChapter(bNum, 1, 1, state.lang);
     });
 
     // Extracteur Guide de Recherche en Lot
@@ -1474,32 +1626,135 @@
       renderReadingTrackerGrid(Number(document.getElementById("reading-book-select")?.value || 1));
     });
 
+    // Paramètres généraux, Export complet JSON & TXT + Import
+    document.getElementById("settings-theme-select")?.addEventListener("change", (e) => applyTheme(e.target.value));
+    document.getElementById("settings-lang-select")?.addEventListener("change", (e) => updateGlobalLanguage(e.target.value));
+    const skipRefsCb = document.getElementById("settings-tts-skip-refs");
+    if (skipRefsCb && window.DFWolAudio) {
+      skipRefsCb.checked = window.DFWolAudio.getSkipRefsEnabled();
+      skipRefsCb.addEventListener("change", (e) => {
+        window.DFWolAudio.setSkipRefsEnabled(e.target.checked);
+        showToast(e.target.checked ? "TTS : versets & cotes ignorés." : "TTS : texte intégral lu.");
+      });
+    }
+
+    const collectAnswers = () => {
+      const answers = {};
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("dfwol_ans_")) {
+            const v = localStorage.getItem(k);
+            if (v && v.trim()) answers[k] = v;
+          }
+        }
+      } catch (_) {}
+      return answers;
+    };
+
+    window.updateSettingsStats = function updateSettingsStatsInternal() {
+      const ans = collectAnswers();
+      let totalCh = 0;
+      Object.values(state.readingProgress).forEach((arr) => {
+        if (Array.isArray(arr)) totalCh += arr.length;
+      });
+      const setTxt = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(val);
+      };
+      setTxt("settings-stats-notes", state.notes.length);
+      setTxt("settings-stats-answers", Object.keys(ans).length);
+      setTxt("settings-stats-chapters", `${totalCh} / 1189`);
+      setTxt("settings-stats-searches", state.savedSearches.length);
+    };
+
+    const deliverExport = async (content, filename, mimeType) => {
+      const capShare = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Share;
+      if (window.DFWolNet && window.DFWolNet.isNativeCapacitor() && capShare && typeof capShare.share === "function") {
+        try {
+          await capShare.share({ title: filename, text: content, dialogTitle: "Exporter mes données DFWol" });
+          showToast("Export prêt au partage !");
+          return;
+        } catch (_) {}
+      }
+      try {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`Fichier ${filename} exporté !`);
+      } catch (_) {
+        await navigator.clipboard.writeText(content).catch(() => {});
+        showToast("Données copiées dans le presse-papiers !");
+      }
+    };
+
     document.getElementById("btn-export-data")?.addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `dfwol-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        app: "DFWol",
+        state,
+        publicationAnswers: collectAnswers(),
+        tts: {
+          skipRefsInTts: window.DFWolAudio ? window.DFWolAudio.getSkipRefsEnabled() : true,
+          voiceFr: window.DFWolAudio ? window.DFWolAudio.getSelectedVoice("fr") : null,
+          voiceEn: window.DFWolAudio ? window.DFWolAudio.getSelectedVoice("en") : null
+        },
+        customProxy: window.DFWolNet ? window.DFWolNet.getCustomProxyBase() : ""
+      };
+      deliverExport(JSON.stringify(payload, null, 2), `dfwol-backup-${new Date().toISOString().slice(0, 10)}.json`, "application/json;charset=utf-8");
     });
+
+    document.getElementById("btn-export-txt")?.addEventListener("click", () => {
+      const ans = collectAnswers();
+      const lines = [
+        `=== DFWOL — SAUVEGARDE NOTES & RÉPONSES (${new Date().toLocaleDateString()}) ===`,
+        "",
+        `--- CARNET DE NOTES (${state.notes.length}) ---`
+      ];
+      state.notes.forEach((n, idx) => {
+        lines.push(`\n${idx + 1}. [${n.tag}] ${n.title}\n${n.body}`);
+      });
+      const ansKeys = Object.keys(ans);
+      lines.push(`\n\n--- RÉPONSES CAHIERS & PUBLICATIONS (${ansKeys.length}) ---`);
+      ansKeys.forEach((k) => {
+        lines.push(`\n[${k.replace(/^dfwol_ans_/, "")}]\n${ans[k]}`);
+      });
+      deliverExport(lines.join("\n"), `dfwol-notes-${new Date().toISOString().slice(0, 10)}.txt`, "text/plain;charset=utf-8");
+    });
+
     document.getElementById("input-import-data")?.addEventListener("change", (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const imp = JSON.parse(String(reader.result));
+          const raw = JSON.parse(String(reader.result));
+          const imp = raw.state && typeof raw.state === "object" ? raw.state : raw;
           if (Array.isArray(imp.notes)) state.notes = imp.notes;
           if (Array.isArray(imp.savedSearches)) state.savedSearches = imp.savedSearches;
           if (imp.readingProgress) state.readingProgress = imp.readingProgress;
+          if (imp.theme) applyTheme(imp.theme);
+          if (imp.lang) updateGlobalLanguage(imp.lang);
+          if (raw.publicationAnswers && typeof raw.publicationAnswers === "object") {
+            Object.entries(raw.publicationAnswers).forEach(([k, v]) => {
+              if (k.startsWith("dfwol_ans_")) localStorage.setItem(k, String(v));
+            });
+          }
+          if (raw.customProxy && window.DFWolNet) {
+            window.DFWolNet.setCustomProxyBase(raw.customProxy);
+          }
           saveState();
           renderNotesList();
           renderSavedSearches();
           renderReadingTrackerGrid(Number(document.getElementById("reading-book-select")?.value || 1));
-          showToast("Sauvegarde importée !");
+          updateSettingsStats();
+          showToast("Toutes vos données ont été restaurées !");
         } catch (_) {
-          showToast("JSON invalide.");
+          showToast("Fichier JSON invalide.");
         }
       };
       reader.readAsText(file);
@@ -1536,14 +1791,30 @@
     }
   }
 
-  function checkStartupUrlParams() {
+  async function checkStartupUrlParams() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("mode") === "widget") {
       document.getElementById("standalone-widget-shell")?.classList.remove("hidden");
       document.getElementById("app-shell")?.classList.add("hidden");
+      return;
     }
+    if (params.get("open") === "daily-text") {
+      await window.DFWolOpenDailyText();
+      return;
+    }
+    try {
+      const widgetPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.DailyTextWidget;
+      if (widgetPlugin && typeof widgetPlugin.consumePendingTarget === "function") {
+        const res = await widgetPlugin.consumePendingTarget();
+        if (res && res.target === "daily_text") {
+          await window.DFWolOpenDailyText();
+          return;
+        }
+      }
+    } catch (_) {}
+
     const tab = params.get("tab");
-    if (tab && document.getElementById(`tab-${tab}`)) {
+    if (tab && (document.getElementById(`tab-${tab}`) || tab === "widget")) {
       switchTab(tab);
     }
   }
@@ -1579,6 +1850,9 @@
     setupNativeBackAndLinkGuard();
     bindAllEvents();
     updateGlobalLanguage(state.lang);
+    setBibleView("books");
+    window.DFWolShowBibleView = setBibleView;
+    updateSettingsStats();
     checkStartupUrlParams();
     setupPwa();
   });

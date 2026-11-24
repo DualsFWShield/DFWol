@@ -7,21 +7,22 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.net.Uri;
 import android.view.View;
 import android.widget.RemoteViews;
 
 import org.json.JSONObject;
 
 /**
- * DFWol — Widget Natif Android "Texte du Jour" (Apparence JW.org)
- * Lit les données synchronisées par Capacitor Preferences ("CapacitorStorage" -> "dfwol_daily_text_widget_payload").
+ * DFWol — Widget Natif Android "Texte du Jour"
+ * Ouvre directement l'écran Texte du Jour dans l'application DFWol au clic.
  */
 public class DailyTextWidgetProvider extends AppWidgetProvider {
 
     private static final String CAPACITOR_PREFS_NAME = "CapacitorStorage";
     private static final String PAYLOAD_KEY = "dfwol_daily_text_widget_payload";
     public static final String ACTION_REFRESH_WIDGET = "org.dfwol.app.ACTION_REFRESH_DAILY_TEXT_WIDGET";
+    public static final String EXTRA_TARGET = "dfwol_target";
+    public static final String TARGET_DAILY_TEXT = "daily_text";
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -49,8 +50,7 @@ public class DailyTextWidgetProvider extends AppWidgetProvider {
         String oneWord = "Confiance";
         String scriptureText = "« Ta parole est une lampe pour mon pied, et une lumière pour ma route. »";
         String scriptureRef = "Psaume 119:105";
-        String bodySummary = "Ouvrez DFWol pour synchroniser le texte du jour.";
-        String wolUrl = "https://wol.jw.org/fr/wol/dt/r30/lp-f";
+        String bodySummary = "Touchez pour lire le Texte du jour complet dans DFWol.";
         boolean showCommentary = true;
 
         if (rawJson != null && !rawJson.isEmpty()) {
@@ -64,7 +64,6 @@ public class DailyTextWidgetProvider extends AppWidgetProvider {
                 String oneSentence = obj.optString("oneSentence", "");
                 String shortParagraph = obj.optString("shortParagraph", "");
                 String fullCommentary = obj.optString("commentary", bodySummary);
-                wolUrl = obj.optString("wolUrl", wolUrl);
                 showCommentary = obj.optBoolean("showCommentary", true);
 
                 if ("oneWord".equals(displayMode)) {
@@ -88,25 +87,20 @@ public class DailyTextWidgetProvider extends AppWidgetProvider {
         views.setTextViewText(R.id.widget_commentary_text, bodySummary);
         views.setViewVisibility(R.id.widget_commentary_text, showCommentary ? View.VISIBLE : View.GONE);
 
-        Intent launchIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
-        if (launchIntent != null) {
-            PendingIntent pendingLaunch = PendingIntent.getActivity(
-                    context,
-                    0,
-                    launchIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-            );
-            views.setOnClickPendingIntent(R.id.widget_root_container, pendingLaunch);
-        }
+        // Toujours ouvrir directement le Texte du Jour dans DFWol (jamais le navigateur externe)
+        Intent dailyIntent = new Intent(context, MainActivity.class);
+        dailyIntent.setAction("org.dfwol.app.OPEN_DAILY_TEXT");
+        dailyIntent.putExtra(EXTRA_TARGET, TARGET_DAILY_TEXT);
+        dailyIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
-        Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(wolUrl));
-        PendingIntent pendingBrowser = PendingIntent.getActivity(
+        PendingIntent pendingDaily = PendingIntent.getActivity(
                 context,
-                1,
-                browserIntent,
+                appWidgetId + 100,
+                dailyIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-        views.setOnClickPendingIntent(R.id.widget_open_wol_btn, pendingBrowser);
+        views.setOnClickPendingIntent(R.id.widget_root_container, pendingDaily);
+        views.setOnClickPendingIntent(R.id.widget_open_wol_btn, pendingDaily);
 
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }

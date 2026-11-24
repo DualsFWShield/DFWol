@@ -12,11 +12,27 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
- * Plugin Capacitor permettant à l'interface JS de déclencher immédiatement
- * le rafraîchissement du widget d'écran d'accueil Android.
+ * Plugin Capacitor permettant :
+ * 1) De rafraîchir immédiatement le widget Android
+ * 2) De récupérer la cible d'ouverture ("daily_text") lors d'un clic sur le widget
  */
 @CapacitorPlugin(name = "DailyTextWidget")
 public class DailyTextWidgetPlugin extends Plugin {
+
+    private static volatile String pendingTarget = null;
+
+    public static void setPendingTarget(String target) {
+        pendingTarget = target;
+    }
+
+    @PluginMethod
+    public void consumePendingTarget(PluginCall call) {
+        String target = pendingTarget;
+        pendingTarget = null;
+        JSObject ret = new JSObject();
+        ret.put("target", target);
+        call.resolve(ret);
+    }
 
     @PluginMethod
     public void refreshWidget(PluginCall call) {

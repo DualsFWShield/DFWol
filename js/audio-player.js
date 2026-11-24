@@ -1,17 +1,13 @@
 /* ==========================================================================
-   DFWol Studio — Lecteur Audio Persistant, File d'Attente & TTS Neuronal
-   Cascade ultra-naturelle :
-   1) MP3 Officiels JW (PubMedia / Mediator)
-   2) Edge Neural TTS v2 (Vivienne / Rémy / Emma / Andrew IA) via Plugin Natif
-      Capacitor OU serveur local / Cloudflare Worker (+ pré-chargement fluide)
-   3) Piper VITS ONNX Neural WASM (@diffusionstudio/vits-web) sur Web/PWA
-   4) Android Native Google Neural TTS (hors-ligne) / Web Speech API (secours)
+   DFWol Studio — Lecteur Audio Pro & Épuré + File d'Attente + TTS Neuronal
+   Filtre intelligent des références entre parenthèses et cotes (w24...)
    ========================================================================== */
 
 window.DFWolAudio = (function () {
   "use strict";
 
   const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v1";
+  const SKIP_REFS_KEY = "dfwol_tts_skip_refs_v1";
   const htmlAudio = new Audio();
   htmlAudio.preload = "auto";
 
@@ -38,12 +34,18 @@ window.DFWolAudio = (function () {
     fr: "fr-FR-VivienneMultilingualNeural",
     en: "en-US-EmmaMultilingualNeural"
   };
+  let skipRefsInTts = true;
 
   try {
     const saved = JSON.parse(localStorage.getItem(VOICE_PREF_KEY) || "null");
     if (saved && saved.fr) voicePrefs.fr = saved.fr;
     if (saved && saved.en) voicePrefs.en = saved.en;
+    const savedSkip = localStorage.getItem(SKIP_REFS_KEY);
+    if (savedSkip !== null) skipRefsInTts = savedSkip === "1";
   } catch (_) {}
+
+  const SVG_PLAY = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l10.5-6.5z"/></svg>`;
+  const SVG_PAUSE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 5h3.5v14H7zm6.5 0H17v14h-3.5z"/></svg>`;
 
   const state = {
     queue: [],
@@ -59,7 +61,7 @@ window.DFWolAudio = (function () {
     activeBlobUrl: null
   };
 
-  const prefetchedChunks = new Map(); // cache key -> Promise<{ url, mime, engineLabel }>
+  const prefetchedChunks = new Map();
   let nativeListenersBound = false;
   let activeNativeUtteranceResolve = null;
   let activeNativeUtteranceId = null;
@@ -84,6 +86,17 @@ window.DFWolAudio = (function () {
     voicePrefs[l] = voiceId;
     try {
       localStorage.setItem(VOICE_PREF_KEY, JSON.stringify(voicePrefs));
+    } catch (_) {}
+  }
+
+  function getSkipRefsEnabled() {
+    return skipRefsInTts;
+  }
+
+  function setSkipRefsEnabled(enabled) {
+    skipRefsInTts = Boolean(enabled);
+    try {
+      localStorage.setItem(SKIP_REFS_KEY, skipRefsInTts ? "1" : "0");
     } catch (_) {}
   }
 
@@ -112,10 +125,73 @@ window.DFWolAudio = (function () {
   }
 
   /**
-   * Découpe en segments naturels (~480 caractères max aux frontières de phrases)
-   * pour une prosodie fluide avec Edge Neural TTS / Piper / Native TTS.
+   * Nettoie un texte avant la lecture TTS :
+   * - Supprime les versets entre parenthèses (ex: "(Lm 3:22 ; w24.01 30 § 16)", "(Éph. 2:12 ; Col. 1:21)")
+   * - Supprime les cotes de publications ("w24.01 30 § 16", "w25.12 26-30", "w07 1/6 11 § 4", "mwb26", etc.)
+   * - Conserve les parenthèses de prose normale (ex: "(par exemple, un ami)")
    */
-  function buildTtsChunks(paragraphsOrText) {
+  function sanitizeTextForTts(rawText, lang = "fr") {
+    let text = String(rawText || "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    if (!skipRefsInTts) return text;
+
+    const isRefOrPubInsideParens = (inner) => {
+      const s = inner.trim();
+      if (!s) return true;
+      // 1) Référence chiffrée chapitre:verset (ex: "Lm 3:22", "1 Cor. 3:9")
+      if (/\b\d{1,3}\s*:\s*\d{1,3}\b/.test(s)) return true;
+      // 2) Code revue/publication JW (w24.01, w25.12, wp, g24, mwb, km, yb...)
+      if (/\b(?:w|wp|g|yb|mwb|km)\s*\d{2,4}(?:[.\-/]\d{1,2})?/i.test(s)) return true;
+      // 3) Symbole paragraphe §
+      if (/§/.test(s)) return true;
+      // 4) Sigles de brochures/livres JW (th leçon 12, lmd leçon 5, it « ... », wcg chap. 18...)
+      if (
+        /\b(?:lmd|th|it|lff|wcg|cl|rr|kr|od|sjj|rsg|dx|bh|bhs|ia|jy|my|yc|hf|ypq)\b(?:\s*(?:le[çc]on|lesson|chap\.?|ch\.?|p\.?|§|«|“|"|\d))/i.test(
+          s
+        )
+      ) {
+        return true;
+      }
+      // 5) Livre biblique + numéro de chapitre sans verset (ex: "voir Romains 8", "Juges 7")
+      if (window.DFWolBible && typeof window.DFWolBible.findBookByName === "function") {
+        const cleanedLead = s.replace(/^(?:voir(?:\s+aussi)?|compare|cf\.?|see(?:\s+also)?|read|lire)\s+/i, "");
+        const mBook = cleanedLead.match(/^((?:[1-3]\s*)?[A-Za-zÀ-ÖØ-öø-ÿ]{2,16})\.?\s+\d{1,3}\b/);
+        if (mBook && window.DFWolBible.findBookByName(mBook[1])) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Supprimer les blocs parenthésés contenant versets ou cotes
+    text = text.replace(/\(([^()]{1,260})\)/g, (full, inner) => (isRefOrPubInsideParens(inner) ? " " : full));
+
+    // Supprimer les cotes d'articles hors parenthèses (ex: "w24.01 30 § 16", "w25.12 26-30", "w07 1/6 11 § 4")
+    text = text.replace(
+      /\b(?:w|wp|g|yb|mwb|km)\s*\d{2,4}(?:[.\-/]\d{1,2})?(?:\s+\d{1,3}(?:\s*[-–/,]\s*\d{1,3})*)?(?:\s*§+\s*\d+(?:\s*[-–,]\s*\d+)*)?/gi,
+      " "
+    );
+    text = text.replace(/\b(?:wcg|lmd|th|lff)\s+(?:chap\.?|le[çc]on|lesson)\s+\d+(?:\s+id[ée]e\s+\d+)?/gi, " ");
+    text = text.replace(/\b(?:it)\s+(?:«[^»]{1,60}»|“[^”]{1,60}”|"[^"]{1,60}")(?:\s*§+\s*\d+(?:[-–]\d+)?)?/gi, " ");
+    text = text.replace(/§+\s*\d+(?:\s*[-–,]\s*\d+)*/g, " ");
+
+    // Nettoyer la ponctuation résiduelle
+    text = text
+      .replace(/\(\s*\)/g, " ")
+      .replace(/\s+([.,;:!?])/g, "$1")
+      .replace(/[;:]\s*([.!?])/g, "$1")
+      .replace(/\.\s*\./g, ".")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+
+    return text;
+  }
+
+  /**
+   * Découpe en segments naturels (~460 caractères max aux frontières de phrases)
+   * après nettoyage des versets parenthésés & cotes d'articles.
+   */
+  function buildTtsChunks(paragraphsOrText, lang = "fr") {
     const chunks = [];
     const rawParas = Array.isArray(paragraphsOrText)
       ? paragraphsOrText.map((p, idx) =>
@@ -126,8 +202,8 @@ window.DFWolAudio = (function () {
           .map((t, idx) => ({ text: t, pid: null, pIdx: idx }));
 
     rawParas.forEach((p) => {
-      const clean = (p.text || "").replace(/\s+/g, " ").trim();
-      if (!clean) return;
+      const clean = sanitizeTextForTts(p.text || "", lang);
+      if (!clean || /^[,.;:!?—–-]+$/.test(clean)) return;
       const sentences = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
       let buffer = "";
       sentences.forEach((sent) => {
@@ -183,21 +259,15 @@ window.DFWolAudio = (function () {
     };
   }
 
-  /**
-   * Prépare un segment TTS audio (MP3 Edge Neural ou WAV Piper) si disponible.
-   * Retourne null si l'audio neuronal réseau/WASM est indisponible (basculera sur Natif Android / Web Speech).
-   */
   async function synthesizeChunkAudio(text, lang, voiceId) {
     const cleanText = String(text || "").trim();
     if (!cleanText || voiceId === "system") return null;
 
-    // 1. Si voix Piper sélectionnée explicitement
     if (voiceId.startsWith("piper:")) {
       const pid = voiceId.slice(6);
       return await synthesizeViaPiper(cleanText, pid);
     }
 
-    // 2. Sur Capacitor Natif -> Plugin Java Edge Neural TTS v2 (100% autonome, zéro CORS)
     const plugin = getNeuralPlugin();
     if (plugin && typeof plugin.synthesizeEdgeNeural === "function") {
       try {
@@ -205,7 +275,7 @@ window.DFWolAudio = (function () {
           text: cleanText,
           voice: voiceId,
           lang,
-          rate: 1.0 // La vitesse est pilotée par htmlAudio.playbackRate en temps réel !
+          rate: 1.0
         });
         if (res && res.audioBase64) {
           return {
@@ -217,7 +287,6 @@ window.DFWolAudio = (function () {
       } catch (_) {}
     }
 
-    // 3. Sur Serveur Local ou Cloudflare Worker -> GET /api/tts
     const endpoint = getTtsEndpointBase();
     if (endpoint) {
       try {
@@ -239,7 +308,6 @@ window.DFWolAudio = (function () {
       } catch (_) {}
     }
 
-    // 4. Sur Web pur (ex: GitHub Pages sans Worker) -> Piper VITS ONNX WebAssembly
     if (!isNativeCap()) {
       try {
         const fallbackPiper = lang === "en" ? "en_US-lessac-medium" : "fr_FR-siwis-medium";
@@ -297,7 +365,6 @@ window.DFWolAudio = (function () {
 
   function speakChunkViaSystemTts(text, lang, sessionId) {
     return new Promise(async (resolve) => {
-      // A) Plugin Natif Android TextToSpeech (Google Neural)
       const plugin = getNeuralPlugin();
       if (plugin && typeof plugin.speakNative === "function") {
         bindNativeTtsListeners();
@@ -332,7 +399,6 @@ window.DFWolAudio = (function () {
         }
       }
 
-      // B) Web Speech API (Navigateur Desktop / iOS Safari)
       if ("speechSynthesis" in window) {
         try {
           window.speechSynthesis.cancel();
@@ -429,7 +495,6 @@ window.DFWolAudio = (function () {
     const voiceId = getSelectedVoice(lang);
     highlightParagraph(chunk);
 
-    // Pré-chargement parallèle du segment suivant dès que possible
     if (voiceId !== "system" && index + 1 < state.ttsChunks.length) {
       getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
     }
@@ -453,13 +518,12 @@ window.DFWolAudio = (function () {
         await htmlAudio.play();
         state.isPlaying = true;
         updatePlayerUI();
-        return; // La suite sera déclenchée par l'événement 'ended' de htmlAudio
+        return;
       } catch (_) {
         stopMp3Internal();
       }
     }
 
-    // Secours : Synthèse Native Android (Google Neural) ou Web Speech API
     const ok = await speakChunkViaSystemTts(chunk.text, lang, mySession);
     if (!state.ttsStopRequested && mySession === state.ttsSessionId && ok) {
       speakChunkAt(index + 1);
@@ -472,7 +536,7 @@ window.DFWolAudio = (function () {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: track.title || "DFWol Audio",
           artist: track.subtitle || "JW.org / WOL",
-          album: "DFWol Studio"
+          album: "DFWol"
         });
         navigator.mediaSession.setActionHandler("play", () => togglePlayPause());
         navigator.mediaSession.setActionHandler("pause", () => togglePlayPause());
@@ -483,14 +547,17 @@ window.DFWolAudio = (function () {
   }
 
   function populateVoiceSelector(lang = "fr") {
-    const sel = document.getElementById("audio-voice-select");
-    if (!sel) return;
     const l = lang === "en" ? "en" : "fr";
     const list = VOICE_CATALOG[l];
     const current = getSelectedVoice(l);
-    sel.innerHTML = list
+    const optsHtml = list
       .map((v) => `<option value="${v.id}" ${v.id === current ? "selected" : ""}>${v.label}</option>`)
       .join("");
+
+    ["audio-voice-select", "settings-voice-select"].forEach((id) => {
+      const sel = document.getElementById(id);
+      if (sel) sel.innerHTML = optsHtml;
+    });
   }
 
   async function startTrackItem(item) {
@@ -516,7 +583,7 @@ window.DFWolAudio = (function () {
 
     if (!resolvedUrl && (!resolvedText || resolvedText.length === 0) && item.wolUrl && window.DFWolReader) {
       try {
-        setBarStatus(resolvedTitle, "Récupération de l'article & vérification MP3…");
+        setBarStatus(resolvedTitle, "Récupération de l'article…");
         const parsed = await window.DFWolReader.fetchArticleParsed(item.wolUrl);
         resolvedTitle = parsed.title || resolvedTitle;
         resolvedSubtitle = parsed.citation || resolvedSubtitle;
@@ -565,7 +632,7 @@ window.DFWolAudio = (function () {
     if (resolvedText) {
       state.ttsStopRequested = false;
       state.ttsCurrentTrack = item;
-      state.ttsChunks = buildTtsChunks(resolvedText);
+      state.ttsChunks = buildTtsChunks(resolvedText, lang);
       if (state.ttsChunks.length === 0) {
         playNextInQueue();
         return;
@@ -575,7 +642,7 @@ window.DFWolAudio = (function () {
       updateMediaSession(item);
       updatePlayerUI();
     } else {
-      window.DFWolToast && window.DFWolToast("Aucun contenu audio ou texte disponible pour cet élément.");
+      window.DFWolToast && window.DFWolToast("Aucun contenu audio ou texte disponible.");
       playNextInQueue();
     }
   }
@@ -650,11 +717,6 @@ window.DFWolAudio = (function () {
   function togglePlayPause() {
     if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
       if (htmlAudio.paused) {
-        if (isTtsMode() && !htmlAudio.src) {
-          state.ttsStopRequested = false;
-          speakChunkAt(state.ttsChunkIndex);
-          return;
-        }
         htmlAudio
           .play()
           .then(() => {
@@ -734,8 +796,10 @@ window.DFWolAudio = (function () {
     stopAll();
     const bar = document.getElementById("global-audio-bar");
     const drawer = document.getElementById("audio-queue-drawer");
+    const popover = document.getElementById("audio-voice-popover");
     if (bar) bar.classList.add("hidden");
     if (drawer) drawer.classList.add("hidden");
+    if (popover) popover.classList.add("hidden");
     document.body.classList.remove("has-audio-bar");
   }
 
@@ -758,11 +822,11 @@ window.DFWolAudio = (function () {
     const timeEl = document.getElementById("audio-time-label");
 
     const engineNames = {
-      mp3: "MP3 Officiel",
-      "neural-mp3": "IA Neuronale",
-      "piper-wasm": "IA Locale",
-      "native-tts": "TTS Natif",
-      "web-tts": "TTS Web"
+      mp3: "MP3",
+      "neural-mp3": "IA",
+      "piper-wasm": "IA",
+      "native-tts": "Natif",
+      "web-tts": "TTS"
     };
 
     if (cur) {
@@ -770,7 +834,7 @@ window.DFWolAudio = (function () {
       if (subEl) subEl.textContent = cur.subtitle || engineNames[state.activeEngine] || "Lecture";
     }
 
-    if (playBtn) playBtn.textContent = state.isPlaying ? "⏸" : "▶";
+    if (playBtn) playBtn.innerHTML = state.isPlaying ? SVG_PAUSE : SVG_PLAY;
     if (rateBtn) rateBtn.textContent = `${state.rate}×`;
     if (badgeEl) badgeEl.textContent = engineNames[state.activeEngine] || "Prêt";
     if (queueCountEl) queueCountEl.textContent = String(state.queue.length);
@@ -781,6 +845,8 @@ window.DFWolAudio = (function () {
       if (progressEl) {
         progressEl.max = dur > 0 ? Math.floor(dur) : 100;
         progressEl.value = dur > 0 ? Math.floor(curT) : 0;
+        const pct = dur > 0 ? Math.min(100, Math.round((curT / dur) * 100)) : 0;
+        progressEl.style.setProperty("--progress-pct", `${pct}%`);
       }
       if (timeEl) timeEl.textContent = `${formatTime(curT)} / ${formatTime(dur)}`;
     } else if (isTtsMode()) {
@@ -788,8 +854,10 @@ window.DFWolAudio = (function () {
       if (progressEl) {
         progressEl.max = total - 1;
         progressEl.value = state.ttsChunkIndex;
+        const pct = total > 1 ? Math.round((state.ttsChunkIndex / (total - 1)) * 100) : 100;
+        progressEl.style.setProperty("--progress-pct", `${pct}%`);
       }
-      if (timeEl) timeEl.textContent = `Seg. ${state.ttsChunkIndex + 1}/${total}`;
+      if (timeEl) timeEl.textContent = `${state.ttsChunkIndex + 1}/${total}`;
     }
 
     renderQueueList();
@@ -819,6 +887,21 @@ window.DFWolAudio = (function () {
         `;
       })
       .join("");
+  }
+
+  function onVoiceChange(newVoiceId) {
+    const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
+    setSelectedVoice(lang, newVoiceId);
+    populateVoiceSelector(lang);
+    clearPrefetchCache();
+    if (isTtsMode() && state.isPlaying) {
+      const curIdx = state.ttsChunkIndex;
+      stopTtsInternal();
+      stopMp3Internal();
+      state.ttsStopRequested = false;
+      state.ttsSessionId++;
+      speakChunkAt(curIdx);
+    }
   }
 
   function init() {
@@ -852,17 +935,15 @@ window.DFWolAudio = (function () {
     });
 
     document.getElementById("audio-voice-select")?.addEventListener("change", (e) => {
-      const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
-      setSelectedVoice(lang, e.target.value);
-      clearPrefetchCache();
-      if (isTtsMode() && state.isPlaying) {
-        const curIdx = state.ttsChunkIndex;
-        stopTtsInternal();
-        stopMp3Internal();
-        state.ttsStopRequested = false;
-        state.ttsSessionId++;
-        speakChunkAt(curIdx);
-      }
+      onVoiceChange(e.target.value);
+      document.getElementById("audio-voice-popover")?.classList.add("hidden");
+    });
+    document.getElementById("settings-voice-select")?.addEventListener("change", (e) => {
+      onVoiceChange(e.target.value);
+    });
+
+    document.getElementById("audio-btn-voice-toggle")?.addEventListener("click", () => {
+      document.getElementById("audio-voice-popover")?.classList.toggle("hidden");
     });
 
     document.getElementById("audio-btn-play")?.addEventListener("click", togglePlayPause);
@@ -874,6 +955,7 @@ window.DFWolAudio = (function () {
     document.getElementById("audio-btn-close")?.addEventListener("click", hideAudioBar);
 
     document.getElementById("audio-btn-queue")?.addEventListener("click", () => {
+      document.getElementById("audio-voice-popover")?.classList.add("hidden");
       document.getElementById("audio-queue-drawer")?.classList.toggle("hidden");
     });
     document.getElementById("audio-queue-close")?.addEventListener("click", () => {
@@ -932,6 +1014,10 @@ window.DFWolAudio = (function () {
     togglePlayPause,
     stopAll,
     populateVoiceSelector,
+    sanitizeTextForTts,
+    getSkipRefsEnabled,
+    setSkipRefsEnabled,
+    getSelectedVoice,
     getState: () => state
   };
 })();

@@ -2,7 +2,7 @@
    DFWol Studio v3 — Service Worker PWA (Cache Hors-Ligne & Support Web Widgets)
    ========================================================================== */
 
-const CACHE_NAME = "dfwol-studio-cache-v7";
+const CACHE_NAME = "dfwol-studio-cache-v8";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
@@ -82,11 +82,7 @@ self.addEventListener("widgetresume", (event) => {
 });
 
 self.addEventListener("widgetclick", (event) => {
-  if (event.action === "openStudio") {
-    event.waitUntil(clients.openWindow("./index.html"));
-  } else if (event.action === "openWol") {
-    event.waitUntil(clients.openWindow("https://wol.jw.org/fr/wol/dt/r30/lp-f"));
-  }
+  event.waitUntil(clients.openWindow("./index.html?open=daily-text"));
 });
 
 async function updatePwaWidget(widget) {

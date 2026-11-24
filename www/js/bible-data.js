@@ -41,7 +41,7 @@ window.DFWolBible = (function () {
     { num: 5, name: "Deutéronome", nameEn: "Deuteronomy", abbr: "Dt", abbrEn: "De", chapters: 34, section: "hebrew", group: "pentateuch", aliases: ["deuteronome", "dt", "deut", "de", "deuteronomy"] },
     { num: 6, name: "Josué", nameEn: "Joshua", abbr: "Jos", abbrEn: "Jos", chapters: 24, section: "hebrew", group: "historical", aliases: ["josue", "jos", "josh", "joshua"] },
     { num: 7, name: "Juges", nameEn: "Judges", abbr: "Jg", abbrEn: "Jg", chapters: 21, section: "hebrew", group: "historical", aliases: ["juges", "jg", "jug", "jdg", "judges"] },
-    { num: 8, name: "Ruth", nameEn: "Ruth", abbr: "Rt", abbrEn: "Ru", chapters: 4, section: "hebrew", group: "historical", aliases: ["ruth", "rt", "ru"] },
+    { num: 8, name: "Ruth", nameEn: "Ruth", abbr: "Ru", abbrEn: "Ru", chapters: 4, section: "hebrew", group: "historical", aliases: ["ruth", "rt", "ru"] },
     { num: 9, name: "1 Samuel", nameEn: "1 Samuel", abbr: "1S", abbrEn: "1Sa", chapters: 31, section: "hebrew", group: "historical", aliases: ["1 samuel", "1samuel", "1 sam", "1sam", "1 s", "1s", "1 sa", "1sa"] },
     { num: 10, name: "2 Samuel", nameEn: "2 Samuel", abbr: "2S", abbrEn: "2Sa", chapters: 24, section: "hebrew", group: "historical", aliases: ["2 samuel", "2samuel", "2 sam", "2sam", "2 s", "2s", "2 sa", "2sa"] },
     { num: 11, name: "1 Rois", nameEn: "1 Kings", abbr: "1R", abbrEn: "1Ki", chapters: 22, section: "hebrew", group: "historical", aliases: ["1 rois", "1rois", "1 r", "1r", "1 ki", "1ki", "1 kings"] },
@@ -49,7 +49,7 @@ window.DFWolBible = (function () {
     { num: 13, name: "1 Chroniques", nameEn: "1 Chronicles", abbr: "1Ch", abbrEn: "1Ch", chapters: 29, section: "hebrew", group: "historical", aliases: ["1 chroniques", "1chroniques", "1 ch", "1ch", "1 chr", "1chr", "1 chronicles"] },
     { num: 14, name: "2 Chroniques", nameEn: "2 Chronicles", abbr: "2Ch", abbrEn: "2Ch", chapters: 36, section: "hebrew", group: "historical", aliases: ["2 chroniques", "2chroniques", "2 ch", "2ch", "2 chr", "2chr", "2 chronicles"] },
     { num: 15, name: "Esdras", nameEn: "Ezra", abbr: "Esd", abbrEn: "Ezr", chapters: 10, section: "hebrew", group: "historical", aliases: ["esdras", "esd", "ezr", "ezra"] },
-    { num: 16, name: "Néhémie", nameEn: "Nehemiah", abbr: "Ne", abbrEn: "Ne", chapters: 13, section: "hebrew", group: "historical", aliases: ["nehemie", "ne", "neh", "nehemiah"] },
+    { num: 16, name: "Néhémie", nameEn: "Nehemiah", abbr: "Né", abbrEn: "Ne", chapters: 13, section: "hebrew", group: "historical", aliases: ["nehemie", "ne", "neh", "nehemiah"] },
     { num: 17, name: "Esther", nameEn: "Esther", abbr: "Est", abbrEn: "Es", chapters: 10, section: "hebrew", group: "historical", aliases: ["esther", "est", "es"] },
     { num: 18, name: "Job", nameEn: "Job", abbr: "Jb", abbrEn: "Job", chapters: 42, section: "hebrew", group: "poetic", aliases: ["job", "jb"] },
     { num: 19, name: "Psaumes", nameEn: "Psalms", abbr: "Ps", abbrEn: "Ps", chapters: 150, section: "hebrew", group: "poetic", aliases: ["psaumes", "psaume", "ps", "psalm", "psalms"] },
@@ -69,7 +69,7 @@ window.DFWolBible = (function () {
     { num: 33, name: "Michée", nameEn: "Micah", abbr: "Mi", abbrEn: "Mic", chapters: 7, section: "hebrew", group: "prophets", aliases: ["michee", "mi", "mic", "micah"] },
     { num: 34, name: "Nahoum", nameEn: "Nahum", abbr: "Na", abbrEn: "Na", chapters: 3, section: "hebrew", group: "prophets", aliases: ["nahoum", "nahum", "na", "nah"] },
     { num: 35, name: "Habacuc", nameEn: "Habakkuk", abbr: "Hab", abbrEn: "Hab", chapters: 3, section: "hebrew", group: "prophets", aliases: ["habacuc", "habakouk", "hab", "ha", "habakkuk"] },
-    { num: 36, name: "Sophonie", nameEn: "Zephaniah", abbr: "So", abbrEn: "Zep", chapters: 3, section: "hebrew", group: "prophets", aliases: ["sophonie", "so", "soph", "zep", "zephaniah"] },
+    { num: 36, name: "Sophonie", nameEn: "Zephaniah", abbr: "Sph", abbrEn: "Zep", chapters: 3, section: "hebrew", group: "prophets", aliases: ["sophonie", "so", "sph", "soph", "zep", "zephaniah"] },
     { num: 37, name: "Aggée", nameEn: "Haggai", abbr: "Ag", abbrEn: "Hag", chapters: 2, section: "hebrew", group: "prophets", aliases: ["aggee", "ag", "agg", "hag", "haggai"] },
     { num: 38, name: "Zacharie", nameEn: "Zechariah", abbr: "Za", abbrEn: "Zec", chapters: 14, section: "hebrew", group: "prophets", aliases: ["zacharie", "za", "zach", "zec", "zechariah"] },
     { num: 39, name: "Malachie", nameEn: "Malachi", abbr: "Ml", abbrEn: "Mal", chapters: 4, section: "hebrew", group: "prophets", aliases: ["malachie", "ml", "mal", "malachi"] },
@@ -78,7 +78,7 @@ window.DFWolBible = (function () {
     { num: 41, name: "Marc", nameEn: "Mark", abbr: "Mc", abbrEn: "Mr", chapters: 16, section: "greek", group: "gospels", aliases: ["marc", "mc", "mr", "mrk", "mark"] },
     { num: 42, name: "Luc", nameEn: "Luke", abbr: "Lc", abbrEn: "Lu", chapters: 24, section: "greek", group: "gospels", aliases: ["luc", "lc", "lu", "luk", "luke"] },
     { num: 43, name: "Jean", nameEn: "John", abbr: "Jean", abbrEn: "Joh", chapters: 21, section: "greek", group: "gospels", aliases: ["jean", "jn", "jhn", "joh", "john"] },
-    { num: 44, name: "Actes", nameEn: "Acts", abbr: "Ac", abbrEn: "Ac", chapters: 28, section: "greek", group: "gospels", aliases: ["actes", "ac", "act", "acts"] },
+    { num: 44, name: "Actes", nameEn: "Acts", abbr: "Ac", abbrEn: "Ac", chapters: 28, section: "greek", group: "acts", aliases: ["actes", "ac", "act", "acts"] },
     { num: 45, name: "Romains", nameEn: "Romans", abbr: "Rm", abbrEn: "Ro", chapters: 16, section: "greek", group: "letters", aliases: ["romains", "rm", "rom", "ro", "romans"] },
     { num: 46, name: "1 Corinthiens", nameEn: "1 Corinthians", abbr: "1Co", abbrEn: "1Co", chapters: 16, section: "greek", group: "letters", aliases: ["1 corinthiens", "1corinthiens", "1 co", "1co", "1 cor", "1cor", "1 corinthians"] },
     { num: 47, name: "2 Corinthiens", nameEn: "2 Corinthians", abbr: "2Co", abbrEn: "2Co", chapters: 13, section: "greek", group: "letters", aliases: ["2 corinthiens", "2corinthiens", "2 co", "2co", "2 cor", "2cor", "2 corinthians"] },
@@ -100,7 +100,7 @@ window.DFWolBible = (function () {
     { num: 63, name: "2 Jean", nameEn: "2 John", abbr: "2J", abbrEn: "2Jo", chapters: 1, section: "greek", group: "letters", aliases: ["2 jean", "2jean", "2 j", "2j", "2 jn", "2jn", "2 jo", "2 john"] },
     { num: 64, name: "3 Jean", nameEn: "3 John", abbr: "3J", abbrEn: "3Jo", chapters: 1, section: "greek", group: "letters", aliases: ["3 jean", "3jean", "3 j", "3j", "3 jn", "3jn", "3 jo", "3 john"] },
     { num: 65, name: "Jude", nameEn: "Jude", abbr: "Jd", abbrEn: "Jude", chapters: 1, section: "greek", group: "letters", aliases: ["jude", "jd", "jud"] },
-    { num: 66, name: "Révélation", nameEn: "Revelation", abbr: "Ré", abbrEn: "Re", chapters: 22, section: "greek", group: "letters", aliases: ["revelation", "apocalypse", "rev", "re", "ap", "apoc"] }
+    { num: 66, name: "Révélation", nameEn: "Revelation", abbr: "Ré", abbrEn: "Re", chapters: 22, section: "greek", group: "revelation", aliases: ["revelation", "apocalypse", "rev", "re", "ap", "apoc"] }
   ];
 
   function normalizeStr(str) {
@@ -273,6 +273,27 @@ window.DFWolBible = (function () {
       return refs[0];
     }
     return null;
+  }
+
+  function expandScriptureRefFull(rawRef, langCode = "fr") {
+    const input = String(rawRef || "").trim();
+    if (!input) return input;
+    return input.replace(SCRIPTURE_REGEX, (fullMatch, rawBook, rawCh, rawV1, rawV2, rawV3) => {
+      const book = findBookByName(rawBook);
+      const ch = parseInt(rawCh, 10);
+      if (!book || ch < 1 || ch > book.chapters) return fullMatch;
+      let fullName = getBookDisplayName(book, langCode);
+      if (book.num === 19) {
+        fullName = langCode === "en" ? "Psalm" : "Psaume";
+      }
+      let res = `${fullName} ${ch}`;
+      if (rawV1) {
+        res += `:${rawV1}`;
+        if (rawV2) res += `-${rawV2}`;
+        else if (rawV3) res += `, ${rawV3}`;
+      }
+      return res;
+    });
   }
 
   /**
@@ -461,6 +482,7 @@ window.DFWolBible = (function () {
     parseScriptureReferences,
     parseRangeOrBatchReferences,
     parseSingleVerseQuery,
+    expandScriptureRefFull,
     linkifyScripturesInHtml,
     parseWolUrlTarget,
     getIsoWeekInfo
