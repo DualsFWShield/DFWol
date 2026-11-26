@@ -240,17 +240,15 @@ window.DFWolAudio = (function () {
     const input = String(rawText || "");
     if (!input || !window.DFWolBible || !window.DFWolBible.SCRIPTURE_REGEX) return input;
     const bible = window.DFWolBible;
-    const re = new RegExp(bible.SCRIPTURE_REGEX.source, "gi");
-    return input.replace(re, (fullMatch) => {
-      const refs = bible.parseScriptureReferences(fullMatch, lang);
-      if (!refs || !refs.length) return fullMatch;
-      const ref = refs[0];
+    const formatRefObj = (ref, omitBook = false) => {
+      if (!ref || !ref.book) return "";
       let bookName = bible.getBookDisplayName(ref.book, lang);
       if (ref.book.num === 19 && ref.chapter) {
         bookName = bookName.replace(/^(Psaumes|Psalms)/, lang === "en" ? "Psalm" : "Psaume");
       }
       if (Array.isArray(ref.verses) && ref.verses.length > 0) {
         const spokenVerses = formatSpokenVerseList(ref.verses, lang);
+        if (omitBook) return `${ref.chapter}, ${spokenVerses}`;
         return ref.book.chapters === 1 ? `${bookName}, ${spokenVerses}` : `${bookName} ${ref.chapter}, ${spokenVerses}`;
       }
       if (ref.chapterEnd && ref.chapterEnd > ref.chapter) {
@@ -258,8 +256,37 @@ window.DFWolAudio = (function () {
           ? `${bookName}, chapters ${ref.chapter} to ${ref.chapterEnd}`
           : `${bookName}, chapitres ${ref.chapter} à ${ref.chapterEnd}`;
       }
-      return `${bookName} ${ref.chapter}`;
-    });
+      return omitBook ? String(ref.chapter) : `${bookName} ${ref.chapter}`;
+    };
+
+    const re = new RegExp(bible.SCRIPTURE_REGEX.source, "gi");
+    const chainTailRe = /^(\s*(?:;|,(?=\s*\d{1,3}\s*:))\s*)(\d{1,3}\s*:\s*\d{1,3}(?:\s*(?:[-–—]\s*\d{1,3}|,\s*\d{1,3}(?!\s*:)(?:\s*[-–—]\s*\d{1,3})?))*)\b/;
+    const parts = [];
+    let cursor = 0;
+    let m;
+    while ((m = re.exec(input)) !== null) {
+      parts.push(input.slice(cursor, m.index));
+      const refs = bible.parseScriptureReferences(m[0], lang);
+      if (!refs || !refs.length) {
+        parts.push(m[0]);
+        cursor = re.lastIndex;
+        continue;
+      }
+      parts.push(formatRefObj(refs[0], false));
+      cursor = re.lastIndex;
+      const rawBook = m[1];
+      while (cursor < input.length) {
+        const tm = chainTailRe.exec(input.slice(cursor));
+        if (!tm) break;
+        const subRefs = bible.parseScriptureReferences(`${rawBook} ${tm[2]}`, lang);
+        if (!subRefs || !subRefs.length) break;
+        parts.push(tm[1], formatRefObj(subRefs[0], true));
+        cursor += tm[0].length;
+        re.lastIndex = cursor;
+      }
+    }
+    parts.push(input.slice(cursor));
+    return parts.join("");
   }
 
   /**
@@ -1147,6 +1174,8 @@ window.DFWolAudio = (function () {
     if (rateBtn) rateBtn.textContent = `${state.rate}×`;
     if (badgeEl) badgeEl.textContent = state.isBuffering && isTtsMode() ? "⏳" : engineNames[state.activeEngine] || "Prêt";
     if (queueCountEl) queueCountEl.textContent = String(state.queue.length);
+    const barEl = document.getElementById("global-audio-bar");
+    if (barEl) barEl.classList.toggle("is-playing", Boolean(state.isPlaying && !state.isBuffering));
 
     updateTimeProgressOnly();
     updateSleepBadge();

@@ -141,7 +141,11 @@ window.DFWolVideo = (function () {
   async function loadVideoCategories(lang = "fr") {
     const langLetter = window.DFWolNet.getLangLetter(lang);
     const bannersEl = document.getElementById("video-categories-banners");
-    if (bannersEl) bannersEl.innerHTML = `<div class="loading-box">⏳ Chargement des catégories vidéo…</div>`;
+    if (bannersEl) {
+      bannersEl.innerHTML = window.DFWolStudy?.renderSkeleton
+        ? window.DFWolStudy.renderSkeleton("cards")
+        : `<div class="loading-box">⏳ Chargement des catégories vidéo…</div>`;
+    }
 
     try {
       const vodData = await window.DFWolNet.mediatorGet(`categories/${langLetter}/VideoOnDemand?detailed=1&clientType=www`);
@@ -190,7 +194,9 @@ window.DFWolVideo = (function () {
       const found = cachedCategories.find((c) => c.key === categoryKey);
       drillTitle.textContent = categoryLabel || found?.name || categoryKey;
     }
-    grid.innerHTML = `<div class="loading-box">⏳ Chargement du catalogue vidéo JW…</div>`;
+    grid.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("cards")
+      : `<div class="loading-box">⏳ Chargement du catalogue vidéo JW…</div>`;
 
     try {
       const data = await window.DFWolNet.mediatorGet(

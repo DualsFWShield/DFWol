@@ -941,7 +941,9 @@ window.DFWolReader = (function () {
     if (topTitleEl) topTitleEl.textContent = "Chargement…";
     if (bodyEl) {
       bodyEl.className = "reader-article-body";
-      bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement depuis WOL.jw.org…</div>`;
+      bodyEl.innerHTML = window.DFWolStudy?.renderSkeleton
+        ? window.DFWolStudy.renderSkeleton("article")
+        : `<div class="loading-box">⏳ Chargement depuis WOL.jw.org…</div>`;
     }
     if (mp3Btn) mp3Btn.classList.add("hidden");
     if (mp3DlBtn) mp3DlBtn.classList.add("hidden");
@@ -1037,9 +1039,33 @@ window.DFWolReader = (function () {
     const root = doc.querySelector(".footnoteResult, .groupFootnote, article#article, #article") || doc.body;
     const clone = root.cloneNode(true);
     absolutizeWolHtml(clone, cleanUrl);
-    clone.querySelectorAll("h1, header").forEach((h) => h.remove());
-    // Rendre les références bibliques cliquables
-    const html = clone.innerHTML;
+    clone.querySelectorAll("h1, header, .cardThumbnail, .cardLine2:empty").forEach((el) => el.remove());
+
+    const linkCards = clone.querySelectorAll("li.linkCard, .linkCard");
+    if (linkCards.length > 0) {
+      const compactList = [];
+      linkCards.forEach((card) => {
+        const title = cleanStr(card.querySelector(".cardTitle, .cardLine1, strong")?.textContent || "");
+        const bodyNode = card.querySelector(".cardDetail, .cardContent, p, blockquote");
+        let snippet = cleanStr(bodyNode?.textContent || "");
+        if (!snippet) {
+          snippet = cleanStr(card.textContent || "").replace(title, "").trim();
+        }
+        const a = card.querySelector("a[href]");
+        const href = a ? a.getAttribute("href") : cleanUrl;
+        compactList.push(
+          `<div class="hover-mr-item">${title ? `<a href="${esc(href)}" class="hover-mr-ref"><strong>${esc(title)}</strong></a>` : ""}${snippet ? `<p>${esc(snippet.slice(0, 260))}${snippet.length > 260 ? "…" : ""}</p>` : ""}</div>`
+        );
+      });
+      const html = compactList.join("");
+      const plainText = cleanStr(compactList.map((h) => h.replace(/<[^>]+>/g, " ")).join(" \n"));
+      const out = { html, plainText, lang };
+      fnMrCache.set(cleanUrl, out);
+      return out;
+    }
+
+    // Nettoyer les éventuels conteneurs vides sur les notes de bas de page
+    const html = clone.innerHTML.replace(/>\s+</g, "><").trim();
     const plainText = cleanStr(clone.textContent || "");
     const out = { html, plainText, lang };
     fnMrCache.set(cleanUrl, out);
@@ -1270,7 +1296,9 @@ window.DFWolReader = (function () {
       pvInput.value = window.DFWolBible.formatVerseSpec(verses, true);
     }
     if (readerBody) {
-      readerBody.innerHTML = `<div class="loading-box">⏳ Chargement du chapitre depuis WOL.jw.org…</div>`;
+      readerBody.innerHTML = window.DFWolStudy?.renderSkeleton
+        ? window.DFWolStudy.renderSkeleton("bible")
+        : `<div class="loading-box">⏳ Chargement du chapitre depuis WOL.jw.org…</div>`;
     }
 
     try {
@@ -1540,7 +1568,11 @@ window.DFWolReader = (function () {
       }
       tabBodyHtml += `</div>`;
     } else if (activeStudyPaneTab === "compare") {
-      tabBodyHtml = `<div id="bible-compare-results" class="study-block"><div class="loading-box">⏳ Chargement des traductions parallèles (TMN d'étude, TMN 1995, NWT EN, KJV, Interlinéaire)…</div></div>`;
+      tabBodyHtml = `<div id="bible-compare-results" class="study-block">${
+        window.DFWolStudy?.renderSkeleton
+          ? window.DFWolStudy.renderSkeleton("list")
+          : `<div class="loading-box">⏳ Chargement des traductions parallèles…</div>`
+      }</div>`;
     } else {
       if (study.studyNotesHtmlList.length > 0) {
         tabBodyHtml += `<div class="study-block"><h4>📝 Notes d'étude (${study.studyNotesCount})</h4><div class="study-notes-rich-list">`;

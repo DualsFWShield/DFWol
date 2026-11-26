@@ -1418,6 +1418,295 @@ window.DFWolStudy = (function () {
     document.getElementById("find-bar-close")?.addEventListener("click", closeFindBar);
 
     window.addEventListener("scroll", hideHoverPopover, { passive: true });
+    initHoverPrefetch();
+    initModalFocusTrap();
+    initReadingProgressBar();
+  }
+
+  /**
+   * Generates shimmer skeleton markup while remote content is fetching.
+   */
+  function renderSkeleton(variant = "article") {
+    if (variant === "bible") {
+      return `
+        <div class="dfwol-skeleton-wrap" aria-busy="true" aria-label="Chargement du chapitre">
+          <div class="dfwol-skeleton dfwol-skel-title"></div>
+          ${Array.from({ length: 6 }, (_, i) => `
+            <div class="dfwol-skel-verse-row">
+              <div class="dfwol-skeleton dfwol-skel-vnum"></div>
+              <div class="dfwol-skel-vlines">
+                <div class="dfwol-skeleton dfwol-skel-line ${i % 2 ? "w-90" : "w-100"}"></div>
+                <div class="dfwol-skeleton dfwol-skel-line ${i % 3 ? "w-85" : "w-70"}"></div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+    if (variant === "cards") {
+      return `
+        <div class="dfwol-skeleton-wrap dfwol-skel-grid" aria-busy="true" aria-label="Chargement des éléments">
+          ${Array.from({ length: 6 }, () => `
+            <div class="dfwol-skel-card">
+              <div class="dfwol-skeleton dfwol-skel-thumb"></div>
+              <div class="dfwol-skeleton dfwol-skel-line w-85"></div>
+              <div class="dfwol-skeleton dfwol-skel-line w-60"></div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+    if (variant === "list") {
+      return `
+        <div class="dfwol-skeleton-wrap dfwol-skel-list" aria-busy="true" aria-label="Chargement de la liste">
+          ${Array.from({ length: 5 }, (_, i) => `
+            <div class="dfwol-skel-list-row">
+              <div class="dfwol-skeleton dfwol-skel-avatar"></div>
+              <div class="dfwol-skel-vlines">
+                <div class="dfwol-skeleton dfwol-skel-line ${i % 2 ? "w-75" : "w-85"}"></div>
+                <div class="dfwol-skeleton dfwol-skel-line w-50"></div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+    if (variant === "dailytext") {
+      return `
+        <div class="dfwol-skeleton-wrap" aria-busy="true" aria-label="Chargement du texte du jour">
+          <div class="dfwol-skeleton dfwol-skel-title w-60"></div>
+          <div class="dfwol-skeleton dfwol-skel-quote"></div>
+          <div class="dfwol-skeleton dfwol-skel-line w-100"></div>
+          <div class="dfwol-skeleton dfwol-skel-line w-95"></div>
+          <div class="dfwol-skeleton dfwol-skel-line w-80"></div>
+        </div>
+      `;
+    }
+    return `
+      <div class="dfwol-skeleton-wrap" aria-busy="true" aria-label="Chargement de l'article">
+        <div class="dfwol-skeleton dfwol-skel-kicker"></div>
+        <div class="dfwol-skeleton dfwol-skel-title w-75"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-100"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-95"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-85"></div>
+        <div class="dfwol-skeleton dfwol-skel-gap"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-100"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-90"></div>
+        <div class="dfwol-skeleton dfwol-skel-line w-70"></div>
+      </div>
+    `;
+  }
+
+  /**
+   * Prefetches Bible chapters or WOL articles after 140ms hover when Data Saver is off.
+   */
+  function initHoverPrefetch() {
+    if (window.__dfwolHoverPrefetchBound) return;
+    window.__dfwolHoverPrefetchBound = true;
+    const prefetchedKeys = new Set();
+    let hoverTimer = null;
+
+    document.addEventListener("mouseover", (e) => {
+      if (navigator.connection?.saveData) return;
+      const target = e.target?.closest?.(
+        "[data-pick-chapter], #materialNav a.cardContainer[href], [data-recent-url], [data-open-pub-url], [data-open-wol-article]"
+      );
+      if (!target) return;
+
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(() => {
+        const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
+        const chAttr = target.getAttribute("data-pick-chapter");
+        if (chAttr) {
+          const ch = Number(chAttr);
+          const bookNum = Number(
+            target.getAttribute("data-book-num") ||
+            document.getElementById("bible-chapters-grid")?.dataset.bookNum ||
+            0
+          );
+          if (!bookNum || !ch) return;
+          const key = `bible:${lang}:${bookNum}:${ch}`;
+          if (prefetchedKeys.has(key)) return;
+          prefetchedKeys.add(key);
+          window.DFWolReader?.fetchBibleChapterParsed?.(bookNum, ch, lang).catch(() => {});
+          return;
+        }
+
+        const rawUrl =
+          target.getAttribute("data-recent-url") ||
+          target.getAttribute("data-open-pub-url") ||
+          target.getAttribute("data-open-wol-article") ||
+          target.getAttribute("href") ||
+          "";
+        if (!rawUrl || rawUrl.startsWith("#") || rawUrl.startsWith("javascript:")) return;
+        const url = rawUrl.startsWith("http")
+          ? rawUrl
+          : `https://wol.jw.org${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
+        const key = `wol:${url}`;
+        if (prefetchedKeys.has(key)) return;
+        prefetchedKeys.add(key);
+        window.DFWolNet?.fetchWolHtml?.(url, { timeoutMs: 8000 }).catch(() => {});
+      }, 140);
+    }, { passive: true });
+
+    document.addEventListener("mouseout", (e) => {
+      if (e.target?.closest?.("[data-pick-chapter], #materialNav a.cardContainer[href], [data-recent-url], [data-open-pub-url], [data-open-wol-article]")) {
+        clearTimeout(hoverTimer);
+      }
+    }, { passive: true });
+  }
+
+  /**
+   * Traps Tab navigation inside visible .modal-backdrop overlays and restores prior focus on close.
+   */
+  function initModalFocusTrap() {
+    if (window.__dfwolModalTrapBound) return;
+    window.__dfwolModalTrapBound = true;
+    const openerStack = [];
+    const focusableSelector =
+      'a[href]:not([disabled]), button:not([disabled]):not(.hidden), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const getVisibleModal = () => {
+      const openModals = Array.from(document.querySelectorAll(".modal-backdrop:not(.hidden)"));
+      return openModals.length ? openModals[openModals.length - 1] : null;
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((m) => {
+        const el = m.target;
+        if (!el || !el.classList?.contains("modal-backdrop")) return;
+        const wasHidden = String(m.oldValue || "").includes("hidden");
+        const isHidden = el.classList.contains("hidden");
+        if (wasHidden && !isHidden) {
+          openerStack.push({ modal: el, opener: document.activeElement });
+          requestAnimationFrame(() => {
+            if (!el.contains(document.activeElement)) {
+              const first = el.querySelector(focusableSelector);
+              first?.focus?.({ preventScroll: true });
+            }
+          });
+        } else if (!wasHidden && isHidden) {
+          for (let i = openerStack.length - 1; i >= 0; i--) {
+            if (openerStack[i].modal === el) {
+              const [{ opener }] = openerStack.splice(i, 1);
+              if (opener && typeof opener.focus === "function" && document.body.contains(opener)) {
+                requestAnimationFrame(() => opener.focus({ preventScroll: true }));
+              }
+              break;
+            }
+          }
+        }
+      });
+    });
+
+    document.querySelectorAll(".modal-backdrop").forEach((modal) => {
+      observer.observe(modal, { attributes: true, attributeFilter: ["class"], attributeOldValue: true });
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab") return;
+      const modal = getVisibleModal();
+      if (!modal) return;
+      const focusables = Array.from(modal.querySelectorAll(focusableSelector)).filter(
+        (node) => node.offsetParent !== null || getComputedStyle(node).position === "fixed"
+      );
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  /**
+   * Drives the 3px header scroll progress indicator across Bible & Meetings reader views.
+   */
+  function initReadingProgressBar() {
+    if (window.__dfwolProgressBarBound) return;
+    window.__dfwolProgressBarBound = true;
+    let rafPending = false;
+
+    const updateProgress = () => {
+      rafPending = false;
+      const bar = document.getElementById("reading-progress-bar");
+      if (!bar) return;
+      const bibleActive = document.getElementById("tab-bible")?.classList.contains("active") &&
+        !document.getElementById("bible-view-reader")?.classList.contains("hidden");
+      const articleActive = document.getElementById("tab-meetings")?.classList.contains("active") &&
+        !document.getElementById("meetings-topbar-reader")?.classList.contains("hidden");
+
+      if (!bibleActive && !articleActive) {
+        bar.style.width = "0%";
+        bar.classList.remove("is-visible");
+        return;
+      }
+
+      if (bibleActive) {
+        const bibleEl = document.getElementById("bible-reader-body");
+        if (bibleEl && bibleEl.scrollHeight > bibleEl.clientHeight + 20) {
+          const maxB = Math.max(1, bibleEl.scrollHeight - bibleEl.clientHeight);
+          const pctB = Math.max(0, Math.min(100, Math.round((bibleEl.scrollTop / maxB) * 100)));
+          bar.style.width = `${pctB}%`;
+          bar.classList.add("is-visible");
+          return;
+        }
+      }
+
+      const docEl = document.documentElement;
+      const maxScroll = Math.max(1, docEl.scrollHeight - window.innerHeight);
+      const pct = Math.max(0, Math.min(100, Math.round((window.scrollY / maxScroll) * 100)));
+      bar.style.width = `${pct}%`;
+      bar.classList.toggle("is-visible", docEl.scrollHeight > window.innerHeight + 60);
+    };
+
+    const scheduleUpdate = () => {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(updateProgress);
+    };
+
+    window.addEventListener("scroll", scheduleUpdate, { passive: true });
+    document.getElementById("bible-reader-body")?.addEventListener("scroll", scheduleUpdate, { passive: true });
+    window.addEventListener("resize", scheduleUpdate, { passive: true });
+    window.addEventListener("dfwol:viewchange", scheduleUpdate);
+    document.addEventListener("click", () => setTimeout(scheduleUpdate, 60), { passive: true });
+  }
+
+  /**
+   * Tracks consecutive daily study visits under dfwol_streak_v1 in localStorage.
+   */
+  function updateAndGetStreak() {
+    const STREAK_KEY = "dfwol_streak_v1";
+    const now = new Date();
+    const toYmd = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const today = toYmd(now);
+    const yestDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yesterday = toYmd(yestDate);
+
+    let data = { count: 0, lastDate: "" };
+    try {
+      const raw = localStorage.getItem(STREAK_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.count === "number") data = parsed;
+      }
+    } catch (_) {}
+
+    if (data.lastDate === today) {
+      return Math.max(1, data.count);
+    }
+    const nextCount = data.lastDate === yesterday ? Math.max(1, data.count) + 1 : 1;
+    const updated = { count: nextCount, lastDate: today };
+    try {
+      localStorage.setItem(STREAK_KEY, JSON.stringify(updated));
+    } catch (_) {}
+    return nextCount;
   }
 
   return {
@@ -1460,6 +1749,8 @@ window.DFWolStudy = (function () {
     renderReadingPlans,
     shareDeepLink,
     safeCopyText,
-    openInputDialog
+    openInputDialog,
+    renderSkeleton,
+    updateAndGetStreak
   };
 })();

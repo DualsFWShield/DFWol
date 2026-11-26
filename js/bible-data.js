@@ -307,9 +307,11 @@ window.DFWolBible = (function () {
   const AMBIGUOUS_SHORT_ALIASES = new Set(["le", "la", "es", "is", "ne", "lu", "am", "co", "he", "so", "ha", "ca", "no"]);
   const MULTIWORD_BOOKS_PATTERN = "Chant\\s+de\\s+Salomon|Cantique\\s+des\\s+cantiques|Song\\s+of\\s+Solomon";
   const SCRIPTURE_REGEX = new RegExp(
-    `\\b(${MULTIWORD_BOOKS_PATTERN}|(?:[123]\\s*)?[A-Za-zÀ-ÖØ-öø-ÿ]{2,18}\\.?)\\s+(\\d{1,3})(?:(\\s*:\\s*)(\\d{1,3}(?:\\s*(?:[-–—]\\s*\\d{1,3}|,\\s*\\d{1,3}(?:\\s*[-–—]\\s*\\d{1,3})?))*)?|\\s*[-–—]\\s*(\\d{1,3}))?\\b`,
+    `\\b(${MULTIWORD_BOOKS_PATTERN}|(?:[123]\\s*)?[A-Za-zÀ-ÖØ-öø-ÿ]{2,18}\\.?)\\s+(\\d{1,3})(?:(\\s*:\\s*)(\\d{1,3}(?:\\s*(?:[-–—]\\s*\\d{1,3}|,\\s*\\d{1,3}(?!\\s*:)(?:\\s*[-–—]\\s*\\d{1,3})?))*)?|\\s*[-–—]\\s*(\\d{1,3}))?\\b`,
     "gi"
   );
+  const SCRIPTURE_SINGLE_REGEX = new RegExp(SCRIPTURE_REGEX.source, "i");
+  const CHAINED_TAIL_REGEX = /^(\s*(?:;|,(?=\s*(?:&nbsp;\s*)?\d{1,3}\s*:))\s*(?:&nbsp;\s*)?)(\d{1,3}\s*:\s*\d{1,3}(?:\s*(?:[-–—]\s*\d{1,3}|,\s*\d{1,3}(?!\s*:)(?:\s*[-–—]\s*\d{1,3})?))*)\b/;
 
   function extractMatchedBookRef(match, langCode = "fr") {
     const rawBook = match[1];
@@ -352,23 +354,53 @@ window.DFWolBible = (function () {
     return buildScriptureLinks(book.num, firstNum, null, null, langCode);
   }
 
+  /**
+   * Resolves chained chapter:verse references following a semicolon/comma
+   * (e.g. "Is 42:8 ; 54:5 ; 55:1") using the active book prefix.
+   */
+  function consumeChainedBookRefs(text, startIndex, rawBook, langCode) {
+    const items = [];
+    let cursor = startIndex;
+    while (cursor < text.length) {
+      const tailMatch = CHAINED_TAIL_REGEX.exec(text.slice(cursor));
+      if (!tailMatch) break;
+      const sep = tailMatch[1];
+      const chVerseText = tailMatch[2];
+      const syntheticMatch = SCRIPTURE_SINGLE_REGEX.exec(`${rawBook} ${chVerseText}`);
+      const subLinks = syntheticMatch ? extractMatchedBookRef(syntheticMatch, langCode) : null;
+      if (!subLinks) break;
+      subLinks.rawMatch = chVerseText;
+      items.push({ sep, chVerseText, links: subLinks });
+      cursor += tailMatch[0].length;
+    }
+    return { items, nextCursor: cursor };
+  }
+
   function parseScriptureReferences(text, langCode = "fr") {
     if (!text || typeof text !== "string") return [];
     const results = [];
     const seenKeys = new Set();
+
+    const pushUnique = (linkData, rawMatch) => {
+      const key = `${linkData.bookNum}:${linkData.chapter}:${linkData.chapterEnd || 0}:${linkData.verseSpecCompact || 0}`;
+      if (seenKeys.has(key)) return;
+      seenKeys.add(key);
+      linkData.rawMatch = rawMatch;
+      results.push(linkData);
+    };
 
     let match;
     SCRIPTURE_REGEX.lastIndex = 0;
     while ((match = SCRIPTURE_REGEX.exec(text)) !== null) {
       const linkData = extractMatchedBookRef(match, langCode);
       if (!linkData) continue;
+      pushUnique(linkData, match[0]);
 
-      const key = `${linkData.bookNum}:${linkData.chapter}:${linkData.chapterEnd || 0}:${linkData.verseSpecCompact || 0}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-
-      linkData.rawMatch = match[0];
-      results.push(linkData);
+      const chained = consumeChainedBookRefs(text, SCRIPTURE_REGEX.lastIndex, match[1], langCode);
+      chained.items.forEach((item) => pushUnique(item.links, item.chVerseText));
+      if (chained.nextCursor > SCRIPTURE_REGEX.lastIndex) {
+        SCRIPTURE_REGEX.lastIndex = chained.nextCursor;
+      }
     }
 
     return results;
@@ -430,13 +462,33 @@ window.DFWolBible = (function () {
    */
   function linkifyScripturesInHtml(escapedHtmlText, langCode = "fr") {
     if (!escapedHtmlText) return "";
+    const parts = [];
+    let cursor = 0;
+    let match;
     SCRIPTURE_REGEX.lastIndex = 0;
-    return escapedHtmlText.replace(SCRIPTURE_REGEX, (...args) => {
-      const fullMatch = args[0];
-      const links = extractMatchedBookRef(args, langCode);
-      if (!links) return fullMatch;
-      return `<a href="${links.wolBibleUrl}" data-inapp-bible="${links.dataAttr}" class="inline-scripture-link" title="Lire ${links.label} dans DFWol">📖 ${fullMatch}</a>`;
-    });
+    while ((match = SCRIPTURE_REGEX.exec(escapedHtmlText)) !== null) {
+      parts.push(escapedHtmlText.slice(cursor, match.index));
+      const links = extractMatchedBookRef(match, langCode);
+      if (!links) {
+        parts.push(match[0]);
+        cursor = SCRIPTURE_REGEX.lastIndex;
+        continue;
+      }
+      parts.push(`<a href="${links.wolBibleUrl}" data-inapp-bible="${links.dataAttr}" class="inline-scripture-link" title="Lire ${links.label} dans DFWol">${match[0]}</a>`);
+      cursor = SCRIPTURE_REGEX.lastIndex;
+
+      const chained = consumeChainedBookRefs(escapedHtmlText, cursor, match[1], langCode);
+      chained.items.forEach((item) => {
+        parts.push(item.sep);
+        parts.push(`<a href="${item.links.wolBibleUrl}" data-inapp-bible="${item.links.dataAttr}" class="inline-scripture-link" title="Lire ${item.links.label} dans DFWol">${item.chVerseText}</a>`);
+      });
+      if (chained.nextCursor > cursor) {
+        cursor = chained.nextCursor;
+        SCRIPTURE_REGEX.lastIndex = cursor;
+      }
+    }
+    parts.push(escapedHtmlText.slice(cursor));
+    return parts.join("");
   }
 
   /**

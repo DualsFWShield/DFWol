@@ -316,7 +316,9 @@ window.DFWolLibrary = (function () {
     listEl?.classList.add("hidden");
     drillEl.classList.remove("hidden");
     if (titleEl) titleEl.textContent = label;
-    bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement de « ${esc(label)} »…</div>`;
+    bodyEl.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("list")
+      : `<div class="loading-box">⏳ Chargement de « ${esc(label)} »…</div>`;
 
     try {
       const cfg = window.DFWolBible.getLangConfig(lang);
@@ -431,7 +433,9 @@ window.DFWolLibrary = (function () {
     const titleEl = document.getElementById("lib-pub-drill-title");
     if (!bodyEl) return;
     if (titleEl) titleEl.textContent = title;
-    bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement…</div>`;
+    bodyEl.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("list")
+      : `<div class="loading-box">⏳ Chargement…</div>`;
     try {
       const res = await window.DFWolNet.fetchWolHtml(wolUrl);
       const doc = new DOMParser().parseFromString(res.html, "text/html");
@@ -472,7 +476,9 @@ window.DFWolLibrary = (function () {
     if (drillEl) drillEl.classList.add("hidden");
     if (!listEl) return;
     listEl.classList.remove("hidden");
-    listEl.innerHTML = `<div class="loading-box">⏳ Chargement des contenus audio JW…</div>`;
+    listEl.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("list")
+      : `<div class="loading-box">⏳ Chargement des contenus audio JW…</div>`;
 
     try {
       const ll = window.DFWolNet.getLangLetter(lang);
@@ -563,7 +569,9 @@ window.DFWolLibrary = (function () {
     listEl?.classList.add("hidden");
     drillEl.classList.remove("hidden");
     if (titleEl) titleEl.textContent = catName || "Audio";
-    bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement des pistes audio…</div>`;
+    bodyEl.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("list")
+      : `<div class="loading-box">⏳ Chargement des pistes audio…</div>`;
 
     try {
       const ll = window.DFWolNet.getLangLetter(lang);
@@ -967,7 +975,9 @@ window.DFWolLibrary = (function () {
   async function loadNewsView(lang = "fr") {
     const container = document.getElementById("lib-news-content");
     if (!container) return;
-    container.innerHTML = `<div class="loading-box">⏳ Chargement des actualités et nouveautés JW.org…</div>`;
+    container.innerHTML = window.DFWolStudy?.renderSkeleton
+      ? window.DFWolStudy.renderSkeleton("cards")
+      : `<div class="loading-box">⏳ Chargement des actualités et nouveautés JW.org…</div>`;
 
     try {
       const { newsroom, whatsNew } = await fetchNewsBundles(lang);
