@@ -15,9 +15,155 @@ window.DFWolNet = (function () {
   let cachedJwtTime = 0;
   const JWT_TTL_MS = 10 * 60 * 1000;
 
-  // Cache LRU en mémoire (max 30 pages valides)
-  const MAX_LRU_ENTRIES = 30;
+  // Cache LRU en mémoire (max 120 pages valides) + Cache persistant IndexedDB (max 500 entrées) + déduplication
+  const MAX_LRU_ENTRIES = 120;
+  const MAX_IDB_ENTRIES = 500;
+  const IDB_NAME = "dfwol_http_cache_v1";
+  const IDB_STORE = "entries";
   const htmlMemoryCache = new Map();
+  const inFlightWolRequests = new Map();
+  const bgRefreshInFlight = new Set();
+  let idbPromise = null;
+
+  function openCacheDb() {
+    if (typeof indexedDB === "undefined") return Promise.resolve(null);
+    if (idbPromise) return idbPromise;
+    idbPromise = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            const store = db.createObjectStore(IDB_STORE, { keyPath: "url" });
+            store.createIndex("lastAccessedAt", "lastAccessedAt", { unique: false });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+    return idbPromise;
+  }
+
+  function getTtlForUrl(url) {
+    const u = String(url || "").toLowerCase();
+    if (/\/wol\/(?:dt|meetings)\/|www\.jw\.org\/(?:fr|en)\/?$|\.xml(?:[?#]|$)|mediator\/v1/i.test(u)) {
+      return 6 * 3600 * 1000;
+    }
+    return 14 * 24 * 3600 * 1000;
+  }
+
+  async function idbGet(key) {
+    const db = await openCacheDb();
+    if (!db) return null;
+    return await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        const store = tx.objectStore(IDB_STORE);
+        const getReq = store.get(key);
+        getReq.onsuccess = () => {
+          const rec = getReq.result;
+          if (rec) {
+            rec.lastAccessedAt = Date.now();
+            try { store.put(rec); } catch (_) {}
+          }
+          resolve(rec || null);
+        };
+        getReq.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function idbPut(key, type, data, customTtlMs = null) {
+    const db = await openCacheDb();
+    if (!db || !data) return;
+    const now = Date.now();
+    const rawStr = typeof data.html === "string" ? data.html : JSON.stringify(data);
+    const sizeBytes = rawStr ? rawStr.length * 2 : 0;
+    const record = {
+      url: key,
+      type,
+      data,
+      cachedAt: now,
+      lastAccessedAt: now,
+      ttlMs: customTtlMs || getTtlForUrl(key),
+      sizeBytes
+    };
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        const store = tx.objectStore(IDB_STORE);
+        store.put(record);
+        const cntReq = store.count();
+        cntReq.onsuccess = () => {
+          const over = (cntReq.result || 0) - MAX_IDB_ENTRIES;
+          if (over > 0 && store.indexNames.contains("lastAccessedAt")) {
+            let removed = 0;
+            const curReq = store.index("lastAccessedAt").openCursor();
+            curReq.onsuccess = (ev) => {
+              const cursor = ev.target.result;
+              if (cursor && removed < over) {
+                cursor.delete();
+                removed++;
+                cursor.continue();
+              }
+            };
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (_) {
+        resolve();
+      }
+    });
+  }
+
+  async function idbClearAll() {
+    const db = await openCacheDb();
+    if (!db) return;
+    await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (_) {
+        resolve();
+      }
+    });
+  }
+
+  async function getCacheStats() {
+    const memoryCount = htmlMemoryCache.size;
+    const db = await openCacheDb();
+    if (!db) return { count: memoryCount, approxKb: 0, memoryCount };
+    return await new Promise((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const store = tx.objectStore(IDB_STORE);
+        let count = 0;
+        let bytes = 0;
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = ev.target.result;
+          if (cursor) {
+            count++;
+            bytes += Number(cursor.value?.sizeBytes || 0);
+            cursor.continue();
+          } else {
+            resolve({ count, approxKb: Math.round(bytes / 1024), memoryCount });
+          }
+        };
+        curReq.onerror = () => resolve({ count: memoryCount, approxKb: 0, memoryCount });
+      } catch (_) {
+        resolve({ count: memoryCount, approxKb: 0, memoryCount });
+      }
+    });
+  }
 
   // Circuit-breaker : map proxyName -> timestamp d'expiration du cooldown
   const proxyCooldowns = new Map();
@@ -174,20 +320,51 @@ window.DFWolNet = (function () {
     return await resp.json();
   }
 
+  async function cachedJsonGet(cacheKey, fetcherFn, ttlMs) {
+    const hit = await idbGet(cacheKey);
+    if (hit && hit.data) {
+      const fresh = Date.now() - hit.cachedAt < (hit.ttlMs || ttlMs);
+      if (fresh) return hit.data;
+      if (!bgRefreshInFlight.has(cacheKey)) {
+        bgRefreshInFlight.add(cacheKey);
+        fetcherFn()
+          .then((freshData) => idbPut(cacheKey, "json", freshData, ttlMs))
+          .catch(() => {})
+          .finally(() => bgRefreshInFlight.delete(cacheKey));
+      }
+      return hit.data;
+    }
+    const freshData = await fetcherFn();
+    idbPut(cacheKey, "json", freshData, ttlMs).catch(() => {});
+    return freshData;
+  }
+
   async function mediatorGet(path) {
     const cleanPath = String(path || "").replace(/^\/+/, "");
     const url = `${MEDIATOR_BASE}/${cleanPath}`;
-    const resp = await fetchWithTimeout(url, {}, 10000);
-    if (!resp.ok) throw new Error(`Erreur Mediator (${resp.status})`);
-    return await resp.json();
+    return await cachedJsonGet(
+      `api:${url}`,
+      async () => {
+        const resp = await fetchWithTimeout(url, {}, 10000);
+        if (!resp.ok) throw new Error(`Erreur Mediator (${resp.status})`);
+        return await resp.json();
+      },
+      6 * 3600 * 1000
+    );
   }
 
   async function pubMediaGet(paramsObj = {}) {
     const params = new URLSearchParams(Object.assign({ output: "json", alllangs: "0" }, paramsObj));
     const url = `${PUBMEDIA_BASE}?${params.toString()}`;
-    const resp = await fetchWithTimeout(url, {}, 10000);
-    if (!resp.ok) throw new Error(`Erreur PubMedia (${resp.status})`);
-    return await resp.json();
+    return await cachedJsonGet(
+      `api:${url}`,
+      async () => {
+        const resp = await fetchWithTimeout(url, {}, 10000);
+        if (!resp.ok) throw new Error(`Erreur PubMedia (${resp.status})`);
+        return await resp.json();
+      },
+      14 * 24 * 3600 * 1000
+    );
   }
 
   async function getBibleAudio(bookNum, lang = "fr") {
@@ -333,27 +510,7 @@ window.DFWolNet = (function () {
     };
   }
 
-  /**
-   * Récupère le HTML d'une URL WOL.jw.org sans jamais bloquer après 1-2 articles :
-   * 1) CapacitorHttp natif
-   * 2) Proxy local intégré (/api/proxy?url=...)
-   * 3) Proxy personnalisé utilisateur (Cloudflare Worker)
-   * 4) Course parallèle contrôlée avec Circuit-Breaker sur les proxies publics + 2ème vague
-   */
-  async function fetchWolHtml(targetUrl, options = {}) {
-    const cleanUrl = String(targetUrl || "").trim();
-    if (!cleanUrl) throw new Error("URL cible manquante");
-    if (!isAllowedUpstreamUrl(cleanUrl)) {
-      throw new Error("URL non autorisée pour le lecteur interne (hôte externe ou local).");
-    }
-
-    if (!options.skipCache && htmlMemoryCache.has(cleanUrl)) {
-      const cached = htmlMemoryCache.get(cleanUrl);
-      // Rafraîchit l'ordre LRU
-      setLruCache(cleanUrl, cached);
-      return cached;
-    }
-
+  async function fetchWolFromNetwork(cleanUrl, options = {}) {
     let result = null;
 
     // 1. CapacitorHttp Natif (Android / iOS)
@@ -432,13 +589,11 @@ window.DFWolNet = (function () {
       const activePool = pool.filter((p) => !isProxyInCooldown(p.name));
       const candidates = activePool.length > 0 ? activePool : pool;
 
-      // Vague 1 : course parallèle sur les 2 premiers proxies disponibles
       const wave1 = candidates.slice(0, 2);
       try {
         result = await Promise.any(wave1.map((p) => tryPublicProxy(p, cleanUrl, options.skipValidation)));
       } catch (_) {}
 
-      // Vague 2 : si la vague 1 échoue, tester les proxies restants
       if (!result && candidates.length > 2) {
         const wave2 = candidates.slice(2);
         try {
@@ -456,7 +611,58 @@ window.DFWolNet = (function () {
     }
 
     setLruCache(cleanUrl, result);
+    idbPut(cleanUrl, "html", result).catch(() => {});
     return result;
+  }
+
+  /**
+   * Récupère le HTML d'une URL WOL/JW avec double cache RAM + IndexedDB persistant (stale-while-revalidate) :
+   * 1) Cache LRU RAM (instantané)
+   * 2) Cache IndexedDB persistant (0 requête réseau)
+   * 3) CapacitorHttp / Proxy local / Proxy utilisateur / Pool public
+   */
+  async function fetchWolHtml(targetUrl, options = {}) {
+    const cleanUrl = String(targetUrl || "").trim();
+    if (!cleanUrl) throw new Error("URL cible manquante");
+    if (!isAllowedUpstreamUrl(cleanUrl)) {
+      throw new Error("URL non autorisée pour le lecteur interne (hôte externe ou local).");
+    }
+
+    if (!options.skipCache && htmlMemoryCache.has(cleanUrl)) {
+      const cached = htmlMemoryCache.get(cleanUrl);
+      setLruCache(cleanUrl, cached);
+      return cached;
+    }
+
+    if (!options.skipCache && inFlightWolRequests.has(cleanUrl)) {
+      return inFlightWolRequests.get(cleanUrl);
+    }
+
+    const work = (async () => {
+      if (!options.skipCache) {
+        const idbRec = await idbGet(cleanUrl);
+        if (idbRec && idbRec.data && idbRec.data.html) {
+          const isFresh = Date.now() - idbRec.cachedAt < (idbRec.ttlMs || getTtlForUrl(cleanUrl));
+          if (isFresh || options.allowStale !== false) {
+            setLruCache(cleanUrl, idbRec.data);
+            if (!isFresh && !bgRefreshInFlight.has(cleanUrl)) {
+              bgRefreshInFlight.add(cleanUrl);
+              fetchWolFromNetwork(cleanUrl, options)
+                .catch(() => {})
+                .finally(() => bgRefreshInFlight.delete(cleanUrl));
+            }
+            return idbRec.data;
+          }
+        }
+      }
+      return await fetchWolFromNetwork(cleanUrl, options);
+    })();
+
+    if (!options.skipCache) {
+      inFlightWolRequests.set(cleanUrl, work);
+      work.finally(() => inFlightWolRequests.delete(cleanUrl));
+    }
+    return work;
   }
 
   async function fetchBlobWithProxyFallback(targetUrl, onProgress = null) {
@@ -650,10 +856,11 @@ window.DFWolNet = (function () {
     return valid;
   }
 
-  function clearHtmlCache() {
+  async function clearHtmlCache() {
     htmlMemoryCache.clear();
     bibleCompareCache.clear();
     proxyCooldowns.clear();
+    await idbClearAll();
   }
 
   return {
@@ -677,6 +884,7 @@ window.DFWolNet = (function () {
     fetchBibleComparison,
     extractDocIdFromUrlOrHtml,
     fetchWolHtml,
+    getCacheStats,
     clearHtmlCache
   };
 })();

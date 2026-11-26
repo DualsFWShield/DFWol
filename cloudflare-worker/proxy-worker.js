@@ -180,7 +180,12 @@ function generateSecMsGecV2() {
 const escapeXml = (s) =>
   String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
-async function synthesizeEdgeTtsWorker(text, voice, lang, rate) {
+function sanitizeTtsPitch(rawPitch) {
+  const clean = String(rawPitch || "").trim();
+  return /^[+-]?\d{1,2}(?:%|Hz)$/i.test(clean) ? clean : "0%";
+}
+
+async function synthesizeEdgeTtsWorker(text, voice, lang, rate, pitch = "0%") {
   const sec = generateSecMsGecV2();
   const connId = crypto.randomUUID().replace(/-/g, "");
   const muid = crypto.randomUUID().replace(/-/g, "").toUpperCase();
@@ -205,11 +210,13 @@ async function synthesizeEdgeTtsWorker(text, voice, lang, rate) {
   );
 
   const safeLang = lang === "en" ? "en-US" : "fr-FR";
-  const safeVoice = voice || (lang === "en" ? "en-US-AriaNeural" : "fr-FR-DeniseNeural");
+  const safeVoice = voice || (lang === "en" ? "en-US-AvaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural");
   const ratePct = Math.round((Number(rate || 1) - 1) * 100);
   const rateStr = `${ratePct >= 0 ? "+" : ""}${ratePct}%`;
+  const cleanPitch = sanitizeTtsPitch(pitch);
+  const pitchAttr = cleanPitch !== "0%" && cleanPitch !== "+0%" && cleanPitch !== "0Hz" ? ` pitch='${escapeXml(cleanPitch)}'` : "";
   const reqId = crypto.randomUUID().replace(/-/g, "");
-  const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${safeLang}'><voice name='${escapeXml(safeVoice)}'><prosody rate='${rateStr}'>${escapeXml(text)}</prosody></voice></speak>`;
+  const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${safeLang}'><voice name='${escapeXml(safeVoice)}'><prosody rate='${rateStr}'${pitchAttr}>${escapeXml(text)}</prosody></voice></speak>`;
   ws.send(`X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
 
   return await new Promise((resolve, reject) => {
@@ -263,13 +270,15 @@ export default {
     if (reqUrl.pathname === "/api/tts") {
       const text = (reqUrl.searchParams.get("text") || "").slice(0, 1500);
       if (!text.trim()) return new Response("Missing text parameter", { status: 400 });
+      const pVoice = reqUrl.searchParams.get("voice");
+      const pLang = reqUrl.searchParams.get("lang") || "fr";
+      const pRate = reqUrl.searchParams.get("rate") || "1";
+      const pPitch = sanitizeTtsPitch(reqUrl.searchParams.get("pitch") || "0%");
       try {
-        const mp3 = await synthesizeEdgeTtsWorker(
-          text,
-          reqUrl.searchParams.get("voice"),
-          reqUrl.searchParams.get("lang") || "fr",
-          reqUrl.searchParams.get("rate") || "1"
-        );
+        let mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, pPitch);
+        if ((!mp3 || mp3.length === 0) && pPitch !== "0%") {
+          mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, "0%");
+        }
         return new Response(mp3, {
           status: 200,
           headers: {

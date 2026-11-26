@@ -158,6 +158,10 @@
                   <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.75"/><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M8 3.2v3.6M16 3.2v3.6M3.5 9.5h17"/></svg>
                   <span class="hq-text"><strong id="dash-iso-week">Semaine --</strong><small>Réunions →</small></span>
                 </button>
+                <button type="button" class="hero-pill-btn" id="hero-btn-brother" title="Spiritual Brother (IA 100% locale)">
+                  <span aria-hidden="true" style="font-size:1.1rem;line-height:1;">🧭</span>
+                  <span class="hq-text"><strong>Spiritual Brother</strong><small>IA locale · 32 outils →</small></span>
+                </button>
               </div>
             </div>
             <div class="home-hero-metrics">
@@ -252,8 +256,21 @@
             </div>
           </div>
 
-          <!-- Accès Verset Express + Récemment consultés -->
+          <!-- Accès Verset Express + À la une JW.org + Récemment consultés -->
           <div class="dashboard-right-stack">
+            <section class="card card-jw-featured" id="dash-jw-featured-card">
+              <div class="card-header">
+                <div>
+                  <span class="badge badge-blue">JW.org · Accueil</span>
+                  <h2 class="card-title">À la une sur JW.org</h2>
+                </div>
+                <button type="button" class="btn-ghost btn-xs" id="dash-open-brother">🧭 Spiritual Brother</button>
+              </div>
+              <div id="dash-jw-featured-body">
+                <p class="card-helper-text">Chargement de l'article en avant sur JW.org…</p>
+              </div>
+            </section>
+
             <div class="card">
               <div class="card-header">
                 <div>
@@ -821,8 +838,8 @@
             </div>
           </div>
 
-          <!-- En-tête Article Ouvert (Captures 4 & 7) -->
-          <div id="meetings-topbar-reader" class="hidden">
+          <!-- En-tête Article Épuré (Icônes + Menu 3 points) -->
+          <div id="meetings-topbar-reader" class="hidden" style="position:relative;">
             <div class="bible-jwl-topbar">
               <div class="bible-jwl-top-left" style="min-width:0;flex:1;">
                 <button type="button" id="btn-meetings-reader-back" class="bible-jwl-back" title="Retour" aria-label="Retour">
@@ -834,49 +851,36 @@
                 </div>
               </div>
               <div class="bible-jwl-top-actions">
-                <button type="button" id="btn-reader-top-week" class="bible-jwl-iconbtn" title="Programme de la semaine" aria-label="Programme de la semaine">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.75"/><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M8 3.2v3.6M16 3.2v3.6M3.5 9.5h17"/></svg>
-                </button>
-                <button type="button" id="btn-reader-top-audio" class="bible-jwl-iconbtn" title="Écouter (MP3 / TTS)" aria-label="Écouter l'article">
+                <button type="button" id="btn-reader-top-audio" class="bible-jwl-iconbtn" title="Écouter (MP3 officiel ou Voix naturelle)" aria-label="Écouter l'article">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 14v-2a8 8 0 0 1 16 0v2M4 14a2 2 0 0 0 2 2h1v-5H6a2 2 0 0 0-2 2zm16 0a2 2 0 0 1-2 2h-1v-5h1a2 2 0 0 1 2 2z"/></svg>
                 </button>
-                <button type="button" id="btn-reader-top-media" class="bible-jwl-iconbtn" title="Voir les médias" aria-label="Voir les médias">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="currentColor" d="m10 9 5 3-5 3z"/></svg>
+                <button type="button" id="btn-reader-top-display" class="bible-jwl-iconbtn" title="Affichage, taille du texte et langue" aria-label="Options d'affichage" aria-expanded="false">
+                  <span style="font-weight:700;font-size:0.9rem;letter-spacing:-0.03em;">Aa</span>
                 </button>
-                <button type="button" id="btn-reader-top-bookmark" class="bible-jwl-iconbtn" title="Placer un marque-page ruban" aria-label="Placer un marque-page">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M6 4h12v17l-6-4-6 4z"/></svg>
-                </button>
-                <button type="button" id="btn-reader-top-study" class="bible-jwl-iconbtn" title="Panneau d'étude côte-à-côte" aria-label="Panneau d'étude">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3z"/></svg>
-                </button>
-                <button type="button" id="btn-reader-top-search" class="bible-jwl-iconbtn" title="Rechercher" aria-label="Rechercher">
+                <button type="button" id="btn-reader-top-find" class="bible-jwl-iconbtn" title="Chercher dans l'article (Ctrl+F)" aria-label="Chercher dans l'article">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
                 </button>
-                <button type="button" id="btn-reader-top-more" class="bible-jwl-iconbtn" title="Options (PDF, IA, Hors-ligne)" aria-label="Plus d'options">
+                <button type="button" id="btn-reader-top-study" class="bible-jwl-iconbtn" title="Volet Étude individuelle" aria-label="Ouvrir le volet d'étude">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3z"/></svg>
+                </button>
+                <button type="button" id="btn-reader-top-more" class="bible-jwl-iconbtn" title="Plus d'options (IA, PDF, Médias, MP3…)" aria-label="Plus d'options">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5.5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="18.5" r="1.5" fill="currentColor"/></svg>
                 </button>
               </div>
             </div>
-          </div>
 
-          <div class="reader-toolbar">
-            <div class="btn-group">
-              <button type="button" id="reader-btn-back" class="btn-icon" title="Précédent" aria-label="Article précédent" disabled>◀</button>
-              <button type="button" id="reader-btn-fwd" class="btn-icon" title="Suivant" aria-label="Article suivant" disabled>▶</button>
-              <button type="button" id="reader-btn-switch-lang" class="btn-secondary btn-xs"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M3.6 9h16.8M3.6 15h16.8M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18"/></svg><span>FR↔EN</span></button>
-              <button type="button" id="reader-btn-font-minus" class="btn-icon" title="Réduire la taille du texte" aria-label="Réduire la police">A-</button>
-              <button type="button" id="reader-btn-font-plus" class="btn-icon" title="Agrandir la taille du texte" aria-label="Agrandir la police">A+</button>
-              <button type="button" id="reader-btn-serif" class="btn-secondary btn-xs btn-comfort-serif" title="Police Sans / Serif éditorial" aria-pressed="false">Aa Serif</button>
-              <button type="button" id="reader-btn-focus" class="btn-icon" title="Mode lecture épurée (Échap)" aria-label="Mode lecture épurée" aria-pressed="false">
-                <svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 9V5h4M16 5h4v4M20 15v4h-4M8 19H4v-4"/></svg>
-              </button>
-              <button type="button" id="reader-btn-find" class="btn-secondary btn-xs" title="Chercher dans l'article (Ctrl+F)"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Chercher</span></button>
-              <button type="button" id="reader-btn-study-pane" class="btn-secondary btn-xs" title="Ouvrir le panneau d'étude côte-à-côte"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3z"/></svg><span>Étude</span></button>
-              <button type="button" id="reader-btn-img-descs" class="btn-secondary btn-xs hidden"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.75"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="m21 15-5-5-8 8"/></svg><span>Alt</span></button>
-              <button type="button" id="reader-btn-mp3" class="btn-primary btn-xs hidden"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 14v-2a8 8 0 0 1 16 0v2M4 14a2 2 0 0 0 2 2h1v-5H6a2 2 0 0 0-2 2zm16 0a2 2 0 0 1-2 2h-1v-5h1a2 2 0 0 1 2 2z"/></svg><span>MP3</span></button>
-              <button type="button" id="reader-btn-mp3-dl" class="btn-secondary btn-xs hidden" title="Télécharger le MP3" aria-label="Télécharger le MP3"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0-4-4m4 4 4-4M4 19h16"/></svg></button>
-              <button type="button" id="reader-btn-ai" class="btn-ai-chip"><svg class="ui-ico ai-chip-spark" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M12 3l1.9 5.3L19.2 10l-5.3 1.9L12 17.2l-1.9-5.3L4.8 10l5.3-1.7z"/></svg><span>IA 1-clic</span></button>
-              <button type="button" id="reader-btn-pdf" class="btn-secondary btn-xs"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h4"/></svg><span>PDF</span></button>
+            <div id="reader-display-popover" class="reader-display-popover hidden" role="dialog" aria-label="Affichage & navigation">
+              <div class="btn-group" style="justify-content:space-between;">
+                <button type="button" id="reader-btn-back" class="btn-icon" title="Article précédent" aria-label="Article précédent" disabled>◀</button>
+                <button type="button" id="reader-btn-fwd" class="btn-icon" title="Article suivant" aria-label="Article suivant" disabled>▶</button>
+                <button type="button" id="reader-btn-font-minus" class="btn-icon" title="Réduire la taille du texte" aria-label="Réduire la police">A-</button>
+                <button type="button" id="reader-btn-font-plus" class="btn-icon" title="Agrandir la taille du texte" aria-label="Agrandir la police">A+</button>
+              </div>
+              <div class="btn-group" style="margin-top:0.45rem;">
+                <button type="button" id="reader-btn-serif" class="btn-secondary btn-xs btn-comfort-serif" aria-pressed="false">Police Serif</button>
+                <button type="button" id="reader-btn-focus" class="btn-secondary btn-xs" aria-pressed="false">Mode Épuré</button>
+                <button type="button" id="reader-btn-switch-lang" class="btn-secondary btn-xs">🌐 FR↔EN</button>
+              </div>
             </div>
           </div>
 
@@ -894,11 +898,6 @@
             </article>
             <aside id="article-study-pane" class="article-study-pane hidden" aria-label="Panneau d'étude de l'article"></aside>
           </div>
-
-          <!-- Bouton flottant violet 💎 Study Gem (Captures 4 & 7) -->
-          <button type="button" id="btn-reader-gem-fab" class="jwl-gem-fab hidden" title="Perles d'étude, Versets, PDF & IA 1-clic" aria-label="Panneau d'étude">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3zm1.1 2l-2.1 3h4.3L8.2 5zm3.3 0L9.2 8h5.6l-1.4-3h-2.8zm4.8 0l-1.3 3h4.3l-2.1-3h-.9zm-9.6 5l4.9 6.8L8.4 10H5.8zm4.2 0l2 7.5 2-7.5H10zm5.6 0l-2.3 6.8L18.2 10h-2.6z"/></svg>
-          </button>
         </div>
 
         <!-- Vue « Voir les médias » (Capture 5) -->
@@ -937,6 +936,7 @@
             <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="bookmarks">MARQUE-PAGES</button>
             <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="playlists">LISTES</button>
             <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="ai">ASSISTANT IA</button>
+            <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="brother">SPIRITUAL BROTHER</button>
             <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="reading">LECTURE</button>
             <button type="button" class="bible-subtab" role="tab" aria-selected="false" data-study-subtab="settings">PARAMÈTRES</button>
           </div>
@@ -1062,7 +1062,7 @@
                 </div>
                 <div class="form-group">
                   <label for="ai-model-input">Modèle</label>
-                  <input type="text" id="ai-model-input" class="text-input" list="ai-model-suggestions" placeholder="gemini-2.5-flash" />
+                  <input type="text" id="ai-model-input" class="text-input" list="ai-model-suggestions" placeholder="gemini-3.8-flash" />
                   <datalist id="ai-model-suggestions"></datalist>
                 </div>
               </div>
@@ -1115,6 +1115,9 @@
             </div>
           </div>
         </div>
+
+        <!-- Sous-vue 2b : SPIRITUAL BROTHER (IA 100 % Locale · 32 Capacités) -->
+        <div id="study-view-brother" class="study-subview hidden"></div>
 
         <!-- Sous-vue 3 : SUIVI DE LECTURE (1 189 Chapitres) -->
         <div id="study-view-reading" class="study-subview hidden">
@@ -1183,9 +1186,36 @@
                 </div>
               </div>
               <div class="form-group" style="margin-bottom:0.75rem;">
-                <label for="settings-voice-select">Voix TTS neuronale par défaut</label>
-                <select id="settings-voice-select" class="select-input"></select>
+                <label for="settings-voice-select">Voix TTS neuronale par défaut (Vivienne recommandée)</label>
+                <div class="btn-group">
+                  <select id="settings-voice-select" class="select-input" style="flex:1;"></select>
+                  <button type="button" id="btn-settings-voice-preview" class="btn-secondary btn-xs" title="Écouter un extrait de la voix">🔊 Tester</button>
+                </div>
               </div>
+              <div class="search-filters-grid" style="margin-bottom:0.65rem;">
+                <div class="form-group">
+                  <label for="settings-tts-pitch">Timbre vocal (Pitch)</label>
+                  <select id="settings-tts-pitch" class="select-input">
+                    <option value="-10%">Plus grave (-10%)</option>
+                    <option value="-4%">Chaleureux (-4%)</option>
+                    <option value="0%" selected>Naturel (0%)</option>
+                    <option value="+4%">Clair (+4%)</option>
+                    <option value="+10%">Plus vif (+10%)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="settings-tts-pause">Pause entre paragraphes</label>
+                  <select id="settings-tts-pause" class="select-input">
+                    <option value="150">Courte (150 ms)</option>
+                    <option value="400" selected>Naturelle (400 ms)</option>
+                    <option value="750">Méditative (750 ms)</option>
+                  </select>
+                </div>
+              </div>
+              <label class="checkbox-inline" style="margin-bottom:0.45rem;">
+                <input type="checkbox" id="settings-tts-autoscroll" checked />
+                <span>Défilement automatique vers le paragraphe lu</span>
+              </label>
               <label class="checkbox-inline">
                 <input type="checkbox" id="settings-tts-skip-refs" checked />
                 <span>Ignorer les versets entre parenthèses et cotes (<code>w24...</code>) pendant la lecture vocale</span>
@@ -1206,6 +1236,7 @@
                 <div class="settings-stat-pill"><strong id="settings-stats-answers">0</strong><span>Réponses cahiers</span></div>
                 <div class="settings-stat-pill"><strong id="settings-stats-chapters">0 / 1189</strong><span>Chapitres lus</span></div>
                 <div class="settings-stat-pill"><strong id="settings-stats-playlists">0</strong><span>Listes de lecture</span></div>
+                <div class="settings-stat-pill"><strong id="settings-stats-cache">0 pages</strong><span>Cache hors-ligne</span></div>
               </div>
               <p class="card-helper-text" style="margin-top:0.75rem;">
                 L'export JSON sauvegarde vos notes, étiquettes, surlignages, marque-pages, listes de lecture, réponses cahiers, chapitres lus et historique (votre clé API reste privée et n'est pas exportée).
@@ -1214,6 +1245,7 @@
                 <button type="button" id="btn-export-data" class="btn-primary btn-sm">💾 Export (.JSON)</button>
                 <button type="button" id="btn-export-txt" class="btn-secondary btn-sm">📝 Export (.TXT)</button>
                 <label for="input-import-data" class="btn-secondary btn-sm cursor-pointer">📂 Importer (.JSON)</label>
+                <button type="button" id="btn-clear-page-cache" class="btn-ghost btn-xs">🧹 Vider le cache pages</button>
                 <input type="file" id="input-import-data" accept=".json" class="hidden" />
               </div>
             </div>
@@ -1396,8 +1428,21 @@
     </div>
 
     <div id="audio-voice-popover" class="audio-voice-popover hidden">
-      <label for="audio-voice-select">Voix neuronale :</label>
-      <select id="audio-voice-select" class="audio-voice-select" aria-label="Voix TTS"></select>
+      <div class="btn-group" style="align-items:center;gap:0.4rem;">
+        <label for="audio-voice-select">Voix :</label>
+        <select id="audio-voice-select" class="audio-voice-select" aria-label="Voix TTS"></select>
+        <button type="button" id="audio-btn-voice-preview" class="btn-secondary btn-xs" title="Tester la voix">🔊</button>
+      </div>
+      <div class="btn-group" style="align-items:center;gap:0.4rem;margin-top:0.4rem;">
+        <label for="audio-tts-pitch">Timbre :</label>
+        <select id="audio-tts-pitch" class="audio-voice-select" aria-label="Timbre vocal">
+          <option value="-10%">Grave (-10%)</option>
+          <option value="-4%">Chaleureux (-4%)</option>
+          <option value="0%" selected>Naturel (0%)</option>
+          <option value="+4%">Clair (+4%)</option>
+          <option value="+10%">Vif (+10%)</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -1437,18 +1482,20 @@
     </button>
   </nav>
 
-  <!-- Barre flottante de sélection & surlignage (Capture 6) -->
+  <!-- Barre flottante de sélection & surlignage (Desktop + Tactile Mobile) -->
   <div id="text-selection-toolbar" class="text-selection-toolbar hidden" role="toolbar" aria-label="Actions sur la sélection">
-    <button type="button" class="hl-dot hl-yellow" data-hl-color="yellow" title="Surligner Jaune"></button>
-    <button type="button" class="hl-dot hl-pink" data-hl-color="pink" title="Surligner Rose"></button>
-    <button type="button" class="hl-dot hl-blue" data-hl-color="blue" title="Surligner Bleu"></button>
-    <button type="button" class="hl-dot hl-green" data-hl-color="green" title="Surligner Vert"></button>
+    <button type="button" class="hl-dot hl-yellow" data-hl-color="yellow" title="Surligner Jaune" aria-label="Surligner jaune"></button>
+    <button type="button" class="hl-dot hl-pink" data-hl-color="pink" title="Surligner Rose" aria-label="Surligner rose"></button>
+    <button type="button" class="hl-dot hl-blue" data-hl-color="blue" title="Surligner Bleu" aria-label="Surligner bleu"></button>
+    <button type="button" class="hl-dot hl-green" data-hl-color="green" title="Surligner Vert" aria-label="Surligner vert"></button>
     <span class="sel-tb-sep"></span>
-    <button type="button" class="sel-tb-btn" id="sel-btn-note" title="Ajouter une note">📝</button>
-    <button type="button" class="sel-tb-btn" id="sel-btn-remove-hl" title="Retirer surlignage">🗑️</button>
-    <button type="button" class="sel-tb-btn" id="sel-btn-copy" title="Copier">📋</button>
-    <button type="button" class="sel-tb-btn" id="sel-btn-search" title="Rechercher">🔍</button>
-    <button type="button" class="sel-tb-btn is-ai" id="sel-btn-ai" title="Préparer pour l'IA en 1 clic">✨</button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-note" title="Ajouter une note" aria-label="Ajouter une note"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg></button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-remove-hl" title="Retirer surlignage" aria-label="Retirer surlignage"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 7h16M9 7V4h6v3m-7 3v7m4-7v7m4-7v7M6 7l1 13h10l1-13"/></svg></button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-listen" title="Écouter l'extrait" aria-label="Écouter l'extrait"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M4 10v4h4l5 4V6L8 10H4zm12.5-1.5a5 5 0 0 1 0 7"/></svg></button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-copy" title="Copier" aria-label="Copier"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-search" title="Rechercher" aria-label="Rechercher"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    <button type="button" class="sel-tb-btn is-ai" id="sel-btn-ai" title="Préparer pour l'IA en 1 clic" aria-label="IA 1-clic"><svg class="ui-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M12 3l1.9 5.3L19.2 10l-5.3 1.9L12 17.2l-1.9-5.3L4.8 10l5.3-1.7z"/></svg></button>
+    <button type="button" class="sel-tb-btn" id="sel-btn-close" title="Fermer" aria-label="Fermer la barre de surlignage">✕</button>
   </div>
 
   <!-- Tiroir Assistant IA 1-Clic -->
@@ -1710,6 +1757,26 @@
     </div>
   </div>
 
+  <!-- Volet Latéral Unifié Étude Individuelle (Versets, Notes, Renvois & Outils) -->
+  <div id="global-study-panel-backdrop" class="global-study-panel-backdrop hidden"></div>
+  <aside id="global-study-panel" class="global-study-panel hidden" role="dialog" aria-modal="false" aria-label="Volet latéral Étude individuelle">
+    <div class="gsp-header">
+      <div class="gsp-header-left">
+        <button type="button" id="gsp-back-btn" class="btn-icon-xs hidden" title="Verset précédent dans le volet" aria-label="Verset précédent">←</button>
+        <strong id="gsp-header-title">Étude individuelle</strong>
+      </div>
+      <button type="button" id="global-study-panel-close" class="btn-icon-xs" aria-label="Fermer le volet d'étude">✕</button>
+    </div>
+    <div id="gsp-tabs-row" class="gsp-tabs-row"></div>
+    <div id="gsp-body" class="gsp-body"></div>
+  </aside>
+
+  <!-- Bouton flottant « Étude individuelle » -->
+  <button type="button" id="btn-reader-gem-fab" class="jwl-gem-fab" title="Ouvrir le volet latéral Étude individuelle" aria-label="Étude individuelle">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.2 3h11.6l3.7 5.5L12 21 2.5 8.5 6.2 3zm1.1 2l-2.1 3h4.3L8.2 5zm3.3 0L9.2 8h5.6l-1.4-3h-2.8zm4.8 0l-1.3 3h4.3l-2.1-3h-.9zm-9.6 5l4.9 6.8L8.4 10H5.8zm4.2 0l2 7.5 2-7.5H10zm5.6 0l-2.3 6.8L18.2 10h-2.6z"/></svg>
+    <span class="jwl-gem-fab-label">Étude individuelle</span>
+  </button>
+
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- Scripts Modulaires -->
@@ -1724,6 +1791,7 @@
   <script src="js/library-hub.js"></script>
   <script src="js/daily-text-widget.js"></script>
   <script src="js/study-workspace.js"></script>
+  <script src="js/spiritual-brother.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -263,6 +263,12 @@ window.DFWolDailyText = (function () {
       a.removeAttribute("target");
       a.classList.add("inline-scripture-link");
     });
+    clone.querySelectorAll("em, i").forEach((em) => {
+      const next = em.nextSibling;
+      if (next && next.nodeType === Node.TEXT_NODE && /^[0-9§]/.test(next.nodeValue || "")) {
+        next.nodeValue = ` ${next.nodeValue}`;
+      }
+    });
     return clone.innerHTML;
   }
 

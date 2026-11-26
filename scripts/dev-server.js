@@ -194,7 +194,12 @@ function buildWsTextFrame(msg) {
   return Buffer.concat([hdr, mask, masked]);
 }
 
-function synthesizeEdgeTtsNode(text, voice, lang, rate) {
+function sanitizeTtsPitch(rawPitch) {
+  const clean = String(rawPitch || "").trim();
+  return /^[+-]?\d{1,2}(?:%|Hz)$/i.test(clean) ? clean : "0%";
+}
+
+function synthesizeEdgeTtsNode(text, voice, lang, rate, pitch = "0%") {
   return new Promise((resolve, reject) => {
     const sec = generateSecMsGecV2();
     const muid = crypto.randomBytes(16).toString("hex").toUpperCase();
@@ -236,11 +241,13 @@ function synthesizeEdgeTtsNode(text, voice, lang, rate) {
         const ts = new Date().toUTCString().replace("GMT", "GMT+0000 (Coordinated Universal Time)");
         const cfgFrame = buildWsTextFrame(`X-Timestamp:${ts}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n`);
         const safeLang = lang === "en" ? "en-US" : "fr-FR";
-        const safeVoice = voice || (lang === "en" ? "en-US-AriaNeural" : "fr-FR-DeniseNeural");
+        const safeVoice = voice || (lang === "en" ? "en-US-AvaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural");
         const pct = Math.round((Number(rate || 1) - 1) * 100);
         const rateStr = `${pct >= 0 ? "+" : ""}${pct}%`;
+        const cleanPitch = sanitizeTtsPitch(pitch);
+        const pitchAttr = cleanPitch !== "0%" && cleanPitch !== "+0%" && cleanPitch !== "0Hz" ? ` pitch='${escapeXml(cleanPitch)}'` : "";
         const reqId = crypto.randomUUID().replace(/-/g, "");
-        const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${safeLang}'><voice name='${escapeXml(safeVoice)}'><prosody rate='${rateStr}'>${escapeXml(text)}</prosody></voice></speak>`;
+        const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${safeLang}'><voice name='${escapeXml(safeVoice)}'><prosody rate='${rateStr}'${pitchAttr}>${escapeXml(text)}</prosody></voice></speak>`;
         const ssmlFrame = buildWsTextFrame(`X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${ts}\r\nPath:ssml\r\n\r\n${ssml}`);
         sock.write(Buffer.concat([cfgFrame, ssmlFrame]));
       }
@@ -306,13 +313,25 @@ const server = http.createServer(async (req, res) => {
       const voice = reqUrl.searchParams.get("voice") || "";
       const lang = reqUrl.searchParams.get("lang") || "fr";
       const rate = reqUrl.searchParams.get("rate") || "1";
-      const cacheKey = `${voice}|${lang}|${rate}|${text}`;
+      const pitch = sanitizeTtsPitch(reqUrl.searchParams.get("pitch") || "0%");
+      const cacheKey = `${voice}|${lang}|${rate}|${pitch}|${text}`;
       let mp3 = ttsServerCache.get(cacheKey);
       if (mp3) {
         ttsServerCache.delete(cacheKey);
         ttsServerCache.set(cacheKey, mp3);
       } else {
-        mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate);
+        try {
+          mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, pitch);
+          if ((!mp3 || mp3.length === 0) && pitch !== "0%") {
+            mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, "0%");
+          }
+        } catch (ttsErr) {
+          if (pitch !== "0%") {
+            mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, "0%");
+          } else {
+            throw ttsErr;
+          }
+        }
         if (mp3 && mp3.length > 0) {
           ttsServerCache.set(cacheKey, mp3);
           if (ttsServerCache.size > MAX_TTS_CACHE) {

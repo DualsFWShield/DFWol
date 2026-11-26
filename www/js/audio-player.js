@@ -6,33 +6,47 @@
 window.DFWolAudio = (function () {
   "use strict";
 
-  const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v2";
+  const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v3";
+  const TTS_OPTS_KEY = "dfwol_tts_opts_v1";
   const SKIP_REFS_KEY = "dfwol_tts_skip_refs_v1";
   const htmlAudio = new Audio();
   htmlAudio.preload = "auto";
 
   const VOICE_CATALOG = {
     fr: [
-      { id: "fr-FR-DeniseNeural", label: "✨ Denise (IA Rapide & Naturelle)" },
-      { id: "fr-FR-HenriNeural", label: "✨ Henri (IA Rapide & Posée)" },
-      { id: "fr-FR-VivienneMultilingualNeural", label: "✨ Vivienne (IA Multilingue)" },
-      { id: "fr-FR-RemyMultilingualNeural", label: "✨ Rémy (IA Multilingue)" },
-      { id: "piper:fr_FR-siwis-medium", label: "🧠 Siwis (IA Hors-ligne)" },
-      { id: "system", label: "📱 Voix Système / Native" }
+      { id: "fr-FR-VivienneMultilingualNeural", label: "✨ Vivienne — Ultra-Naturelle • Favorite" },
+      { id: "fr-FR-RemyMultilingualNeural", label: "✨ Rémy — Multilingue Naturelle" },
+      { id: "fr-FR-DeniseNeural", label: "✨ Denise — Fluide & Claire" },
+      { id: "fr-FR-HenriNeural", label: "✨ Henri — Posée & Chaleureuse" },
+      { id: "fr-CA-SylvieNeural", label: "✨ Sylvie — Canada Naturelle" },
+      { id: "fr-CA-JeanNeural", label: "✨ Jean — Canada Posée" },
+      { id: "fr-CA-ThierryNeural", label: "✨ Thierry — Canada Claire" },
+      { id: "fr-BE-CharlineNeural", label: "✨ Charline — Belgique Naturelle" },
+      { id: "fr-BE-GerardNeural", label: "✨ Gérard — Belgique Posée" },
+      { id: "fr-CH-ArianeNeural", label: "✨ Ariane — Suisse Naturelle" },
+      { id: "fr-CH-FabriceNeural", label: "✨ Fabrice — Suisse Posée" }
     ],
     en: [
-      { id: "en-US-AriaNeural", label: "✨ Aria (Fast Neural AI)" },
-      { id: "en-US-EmmaMultilingualNeural", label: "✨ Emma (Multilingual AI)" },
-      { id: "en-US-AndrewMultilingualNeural", label: "✨ Andrew (Multilingual AI)" },
-      { id: "en-GB-SoniaNeural", label: "✨ Sonia (Neural UK)" },
-      { id: "piper:en_US-lessac-medium", label: "🧠 Lessac (Offline AI)" },
-      { id: "system", label: "📱 System / Native Voice" }
+      { id: "en-US-AvaMultilingualNeural", label: "✨ Ava — Ultra-Natural • Default" },
+      { id: "en-US-AndrewMultilingualNeural", label: "✨ Andrew — Multilingual" },
+      { id: "en-US-EmmaMultilingualNeural", label: "✨ Emma — Warm Multilingual" },
+      { id: "en-US-BrianMultilingualNeural", label: "✨ Brian — Deep Multilingual" },
+      { id: "en-GB-SoniaNeural", label: "✨ Sonia — Natural UK" },
+      { id: "en-GB-RyanNeural", label: "✨ Ryan — Warm UK" },
+      { id: "en-US-AriaNeural", label: "✨ Aria — Expressive" },
+      { id: "en-US-JennyNeural", label: "✨ Jenny — Clear" },
+      { id: "en-US-GuyNeural", label: "✨ Guy — Warm" }
     ]
   };
 
   let voicePrefs = {
-    fr: "fr-FR-DeniseNeural",
-    en: "en-US-AriaNeural"
+    fr: "fr-FR-VivienneMultilingualNeural",
+    en: "en-US-AvaMultilingualNeural"
+  };
+  let ttsOpts = {
+    pitch: "0%",
+    paragraphPauseMs: 400,
+    autoScroll: true
   };
   let skipRefsInTts = true;
 
@@ -40,6 +54,10 @@ window.DFWolAudio = (function () {
     const saved = JSON.parse(localStorage.getItem(VOICE_PREF_KEY) || "null");
     if (saved && saved.fr) voicePrefs.fr = saved.fr;
     if (saved && saved.en) voicePrefs.en = saved.en;
+    const savedOpts = JSON.parse(localStorage.getItem(TTS_OPTS_KEY) || "null");
+    if (savedOpts && typeof savedOpts === "object") {
+      ttsOpts = Object.assign({}, ttsOpts, savedOpts);
+    }
     const savedSkip = localStorage.getItem(SKIP_REFS_KEY);
     if (savedSkip !== null) skipRefsInTts = savedSkip === "1";
   } catch (_) {}
@@ -152,7 +170,22 @@ window.DFWolAudio = (function () {
 
   function getSelectedVoice(lang = "fr") {
     const l = lang === "en" ? "en" : "fr";
-    return voicePrefs[l] || VOICE_CATALOG[l][0].id;
+    const list = VOICE_CATALOG[l] || VOICE_CATALOG.fr;
+    const cur = voicePrefs[l];
+    return list.some((v) => v.id === cur) ? cur : list[0].id;
+  }
+
+  function getTtsOptions() {
+    return Object.assign({}, ttsOpts);
+  }
+
+  function setTtsOptions(partial = {}) {
+    ttsOpts = Object.assign({}, ttsOpts, partial || {});
+    try {
+      localStorage.setItem(TTS_OPTS_KEY, JSON.stringify(ttsOpts));
+    } catch (_) {}
+    clearPrefetchCache();
+    ttsAudioCache.clear();
   }
 
   function setSelectedVoice(lang, voiceId) {
@@ -486,7 +519,8 @@ window.DFWolAudio = (function () {
     const cleanText = String(text || "").trim();
     if (!cleanText || voiceId === "system") return null;
 
-    const cacheKey = `${voiceId}|${lang}|${cleanText}`;
+    const pitch = ttsOpts.pitch || "0%";
+    const cacheKey = `${voiceId}|${lang}|${pitch}|${cleanText}`;
     const cached = getCachedAudio(cacheKey);
     if (cached) {
       return {
@@ -535,7 +569,7 @@ window.DFWolAudio = (function () {
       const endpoint = getTtsEndpointBase();
       if (endpoint) {
         try {
-          const url = `${endpoint}?text=${encodeURIComponent(cleanText)}&voice=${encodeURIComponent(voiceId)}&lang=${encodeURIComponent(lang)}&rate=1`;
+          const url = `${endpoint}?text=${encodeURIComponent(cleanText)}&voice=${encodeURIComponent(voiceId)}&lang=${encodeURIComponent(lang)}&rate=1&pitch=${encodeURIComponent(pitch)}`;
           const resp = await fetch(url);
           if (resp.ok) {
             const ct = resp.headers.get("Content-Type") || "";
@@ -733,7 +767,49 @@ window.DFWolAudio = (function () {
     const el = document.querySelector(`[data-reader-pid="${chunk.pid}"]`);
     if (el) {
       el.classList.add("tts-speaking-para");
-      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (ttsOpts.autoScroll !== false) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    }
+  }
+
+  function parseMarkerSeconds(timeVal) {
+    if (typeof timeVal === "number" && isFinite(timeVal)) return Math.max(0, timeVal);
+    const parts = String(timeVal || "").trim().split(":").map(Number);
+    if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+      return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    }
+    if (parts.length === 2 && parts.every((n) => !isNaN(n))) {
+      return parts[0] * 60 + parts[1];
+    }
+    return 0;
+  }
+
+  function syncMp3MarkerHighlight() {
+    const cur = state.queue[state.currentIndex];
+    const markers = cur?.mp3Markers;
+    if (!Array.isArray(markers) || !markers.length || state.activeEngine !== "mp3") return;
+    const t = htmlAudio.currentTime || 0;
+    let activeM = null;
+    for (let i = 0; i < markers.length; i++) {
+      const s = parseMarkerSeconds(markers[i].startTime);
+      if (t >= s - 0.15) {
+        if (!activeM || s >= parseMarkerSeconds(activeM.startTime)) activeM = markers[i];
+      }
+    }
+    clearArticleHighlights();
+    if (!activeM) return;
+    let targetEl = null;
+    if (activeM.mepsParagraphId != null) {
+      targetEl = document.querySelector(`[data-meps-pid="${activeM.mepsParagraphId}"]`);
+    } else if (activeM.verseNumber != null) {
+      targetEl = document.querySelector(`#bible-reader-body .bible-verse-row[data-select-verse="${activeM.verseNumber}"]`);
+    }
+    if (targetEl) {
+      targetEl.classList.add("tts-speaking-para");
+      if (ttsOpts.autoScroll !== false) {
+        targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
     }
   }
 
@@ -900,9 +976,30 @@ window.DFWolAudio = (function () {
 
     if (resolvedUrl && item.mode !== "tts") {
       item.audioUrl = resolvedUrl;
+      const sameMp3 = state.activeEngine === "mp3" && htmlAudio.src && (htmlAudio.src === resolvedUrl || htmlAudio.src.endsWith(resolvedUrl));
+      const seekAudioToItem = () => {
+        if (typeof item.startTimeSec === "number" && isFinite(item.startTimeSec) && item.startTimeSec >= 0) {
+          htmlAudio.currentTime = Math.min(htmlAudio.duration || item.startTimeSec, item.startTimeSec);
+        } else if (typeof item.seekRatio === "number" && isFinite(item.seekRatio) && htmlAudio.duration > 0) {
+          htmlAudio.currentTime = Math.max(0, Math.min(htmlAudio.duration - 1, htmlAudio.duration * item.seekRatio));
+        }
+        syncMp3MarkerHighlight();
+      };
+
       state.activeEngine = "mp3";
-      htmlAudio.src = resolvedUrl;
+      if (!sameMp3) {
+        htmlAudio.src = resolvedUrl;
+      }
       htmlAudio.playbackRate = state.rate;
+
+      if (typeof item.startTimeSec === "number" || typeof item.seekRatio === "number") {
+        if (htmlAudio.readyState >= 1) {
+          seekAudioToItem();
+        } else {
+          htmlAudio.addEventListener("loadedmetadata", seekAudioToItem, { once: true });
+        }
+      }
+
       try {
         await htmlAudio.play();
         state.isPlaying = true;
@@ -990,6 +1087,95 @@ window.DFWolAudio = (function () {
     return true;
   }
 
+  function playMp3FromParagraph(pid, articleData = null) {
+    const art = articleData || (window.DFWolReader && window.DFWolReader.getCurrentArticleData && window.DFWolReader.getCurrentArticleData());
+    if (!art || !art.mp3Url) {
+      return playFromParagraph(pid, art);
+    }
+    const paras = Array.isArray(art.paragraphs) ? art.paragraphs : [];
+    const pIdx = paras.findIndex((p) => String(p.pid) === String(pid));
+    const paraObj = pIdx >= 0 ? paras[pIdx] : null;
+    const mepsPid = paraObj?.mepsPid || Number(String(pid || "").replace(/^rp?/, "").replace(/\D/g, "")) || null;
+    const markers = Array.isArray(art.mp3Markers) ? art.mp3Markers : [];
+    const marker = mepsPid ? markers.find((m) => Number(m.mepsParagraphId) === Number(mepsPid)) : null;
+
+    let startTimeSec;
+    let seekRatio;
+    if (marker && marker.startTime != null) {
+      startTimeSec = parseMarkerSeconds(marker.startTime);
+    } else if (pIdx > 0 && paras.length > 1) {
+      seekRatio = Math.max(0, Math.min(0.94, pIdx / paras.length));
+    } else {
+      startTimeSec = 0;
+    }
+
+    playTrack({
+      title: art.title || "Audio Officiel",
+      subtitle: pIdx > 0 ? `MP3 dès le § ${pIdx + 1}` : art.citation || "Audio Officiel JW",
+      audioUrl: art.mp3Url,
+      mp3Markers: markers,
+      startTimeSec,
+      seekRatio,
+      paragraphs: pIdx >= 0 ? paras.slice(pIdx) : paras,
+      lang: art.lang || "fr",
+      mode: "mp3"
+    });
+    return true;
+  }
+
+  function playMp3FromVerse(verseNum, chapterData = null) {
+    const bState = window.DFWolReader?.getCurrentBibleState?.();
+    const d = chapterData || bState?.primaryData;
+    if (!d) return false;
+    const bName = window.DFWolBible?.getBookDisplayName(d.book, d.lang) || "";
+    const label = `${bName} ${d.chapter}:${verseNum}`;
+    if (!d.mp3Url) {
+      const vObj = d.verses?.find((v) => v.verse === Number(verseNum));
+      if (vObj) {
+        playTrack({ title: label, subtitle: "Bible d'étude (Voix IA)", text: `${label}. ${vObj.text}`, lang: d.lang || "fr", mode: "tts" });
+        return true;
+      }
+      return false;
+    }
+    const markers = Array.isArray(d.mp3Markers) ? d.mp3Markers : [];
+    const marker = markers.find((m) => Number(m.verseNumber) === Number(verseNum));
+    let startTimeSec;
+    let seekRatio;
+    if (marker && marker.startTime != null) {
+      startTimeSec = parseMarkerSeconds(marker.startTime);
+    } else if (d.verses && d.verses.length > 1) {
+      seekRatio = Math.max(0, Math.min(0.95, (Number(verseNum) - 1) / d.verses.length));
+    } else {
+      startTimeSec = 0;
+    }
+    playTrack({
+      title: `${bName} ${d.chapter}`,
+      subtitle: `MP3 dès le verset ${verseNum}`,
+      audioUrl: d.mp3Url,
+      mp3Markers: markers,
+      startTimeSec,
+      seekRatio,
+      lang: d.lang || "fr",
+      mode: "mp3"
+    });
+    return true;
+  }
+
+  function previewSelectedVoice(lang = null) {
+    const l = (lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr")) === "en" ? "en" : "fr";
+    const sample =
+      l === "en"
+        ? "Jehovah is our refuge and strength, a help that is readily found in times of distress."
+        : "Jéhovah est notre refuge et notre force, un secours facile à trouver en temps de détresse.";
+    playTrack({
+      title: l === "en" ? "Voice preview" : "Aperçu vocal",
+      subtitle: getSelectedVoice(l),
+      text: sample,
+      lang: l,
+      mode: "tts"
+    });
+  }
+
   function playPrevInQueue() {
     if (state.activeEngine === "mp3" && htmlAudio.currentTime > 5) {
       htmlAudio.currentTime = 0;
@@ -1075,7 +1261,7 @@ window.DFWolAudio = (function () {
   }
 
   function cycleRate() {
-    const rates = [0.85, 1.0, 1.15, 1.3, 1.5, 1.75, 2.0];
+    const rates = [0.75, 0.85, 0.95, 1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
     const idx = rates.indexOf(state.rate);
     state.rate = rates[(idx + 1) % rates.length];
     if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
@@ -1230,13 +1416,28 @@ window.DFWolAudio = (function () {
     populateVoiceSelector(window.DFWolGetLang ? window.DFWolGetLang() : "fr");
 
     htmlAudio.addEventListener("timeupdate", () => {
-      if (state.activeEngine === "mp3") updateTimeProgressOnly();
+      if (state.activeEngine === "mp3") {
+        updateTimeProgressOnly();
+        syncMp3MarkerHighlight();
+      }
     });
     htmlAudio.addEventListener("ended", () => {
+      clearArticleHighlights();
       if (state.activeEngine === "mp3") {
         playNextInQueue();
       } else if (isTtsMode() && !state.ttsStopRequested) {
-        speakChunkAt(state.ttsChunkIndex + 1);
+        const prevChunk = state.ttsChunks[state.ttsChunkIndex];
+        const nextIdx = state.ttsChunkIndex + 1;
+        const nextChunk = state.ttsChunks[nextIdx];
+        const pauseMs = Number(ttsOpts.paragraphPauseMs || 0);
+        if (pauseMs > 0 && prevChunk && nextChunk && nextChunk.pIdx !== prevChunk.pIdx) {
+          const sess = state.ttsSessionId;
+          setTimeout(() => {
+            if (!state.ttsStopRequested && sess === state.ttsSessionId) speakChunkAt(nextIdx);
+          }, pauseMs);
+        } else {
+          speakChunkAt(nextIdx);
+        }
       }
     });
     htmlAudio.addEventListener("error", () => {
@@ -1369,11 +1570,16 @@ window.DFWolAudio = (function () {
     buildTtsChunks,
     prewarmText,
     playFromParagraph,
+    playMp3FromParagraph,
+    playMp3FromVerse,
+    previewSelectedVoice,
     setSleepTimer,
     getSleepTimerState,
     getSkipRefsEnabled,
     setSkipRefsEnabled,
     getSelectedVoice,
+    getTtsOptions,
+    setTtsOptions,
     getCurrentTrack: () => state.queue[state.currentIndex] || null,
     getState: () => state
   };

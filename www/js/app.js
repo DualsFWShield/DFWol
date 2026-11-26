@@ -49,6 +49,8 @@
 
   let deferredPwaPrompt = null;
   const tabHistory = ["dashboard"];
+  const navStack = [];
+  let isRestoringNav = false;
   let lastBackExitTime = 0;
 
   function loadPersistedState() {
@@ -161,18 +163,132 @@
   // Navigation, Historique & Bouton Retour Natif Android
   // ==========================================================================
 
+  function captureCurrentViewSnapshot() {
+    const curArt = window.DFWolReader?.getCurrentArticleData?.();
+    const curBible = window.DFWolReader?.getCurrentBibleState?.();
+    const curLib = window.DFWolLibrary?.getActiveSubtab?.() || "publications";
+    return {
+      tab: state.activeTab,
+      meetingsView: activeMeetingsView,
+      meetingsOffset: meetingsWeekOffset,
+      articleUrl: curArt?.url || null,
+      articleLang: curArt?.lang || state.lang,
+      bibleSubtab: activeBibleSubtab,
+      bibleBook: curBible?.bookNum || selectedBibleBookNum,
+      bibleChapter: curBible?.chapter || 1,
+      bibleVerses: curBible?.verses || curBible?.verse || 1,
+      bibleLang: curBible?.lang || state.lang,
+      libSubtab: curLib,
+      studySubtab: activeStudySubtab,
+      scrollY: window.scrollY || 0
+    };
+  }
+
+  function pushNavSnapshot(customSnap = null) {
+    if (isRestoringNav) return;
+    const snap = customSnap || captureCurrentViewSnapshot();
+    const top = navStack[navStack.length - 1];
+    if (
+      top &&
+      top.tab === snap.tab &&
+      top.meetingsView === snap.meetingsView &&
+      top.meetingsOffset === snap.meetingsOffset &&
+      top.articleUrl === snap.articleUrl &&
+      top.bibleSubtab === snap.bibleSubtab &&
+      top.bibleBook === snap.bibleBook &&
+      top.bibleChapter === snap.bibleChapter &&
+      top.libSubtab === snap.libSubtab &&
+      top.studySubtab === snap.studySubtab
+    ) {
+      return;
+    }
+    navStack.push(snap);
+    if (navStack.length > 40) navStack.shift();
+    if (window.history && typeof window.history.pushState === "function") {
+      try {
+        window.history.pushState({ dfwolNavIdx: navStack.length }, "");
+      } catch (_) {}
+    }
+  }
+  window.DFWolPushNavSnapshot = pushNavSnapshot;
+  window.DFWolIsRestoringNav = () => isRestoringNav;
+  window.DFWolShowMeetingsWeek = () => loadMeetingsForOffset(meetingsWeekOffset);
+
+  async function restoreNavSnapshot(snap) {
+    if (!snap) return false;
+    isRestoringNav = true;
+    try {
+      switchTab(snap.tab, {
+        fromBack: true,
+        skipPushState: true,
+        skipAutoMeetings: true,
+        preserveScroll: true,
+        libSubtab: snap.libSubtab,
+        studySubtab: snap.studySubtab,
+        meetingsView: snap.meetingsView
+      });
+
+      if (snap.tab === "meetings") {
+        if (snap.meetingsView === "reader" && snap.articleUrl && window.DFWolReader) {
+          showMeetingsView("reader");
+          await window.DFWolReader.openArticleInApp(snap.articleUrl, {
+            lang: snap.articleLang || state.lang,
+            skipTabSwitch: true,
+            fromHistory: true
+          });
+        } else {
+          await loadMeetingsForOffset(snap.meetingsOffset ?? meetingsWeekOffset, { fromHistory: true });
+        }
+      } else if (snap.tab === "bible") {
+        if (snap.bibleSubtab === "reader" && snap.bibleBook) {
+          setBibleView("reader", snap.bibleBook, { fromHistory: true });
+          const pb = document.getElementById("picker-book");
+          if (pb) pb.value = String(snap.bibleBook);
+          populateChapterSelect(snap.bibleBook, snap.bibleChapter || 1);
+          await window.DFWolReader.openBibleChapter(
+            snap.bibleBook,
+            snap.bibleChapter || 1,
+            snap.bibleVerses || 1,
+            snap.bibleLang || state.lang,
+            undefined,
+            { fromHistory: true }
+          );
+        } else {
+          setBibleView(snap.bibleSubtab || "books", snap.bibleBook || selectedBibleBookNum, { fromHistory: true });
+        }
+      } else if (snap.tab === "library" && window.DFWolLibrary) {
+        window.DFWolLibrary.setLibraryView(snap.libSubtab || "publications", { fromHistory: true });
+      } else if (snap.tab === "study") {
+        setStudyView(snap.studySubtab || "notes", { fromHistory: true });
+      }
+
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: snap.scrollY || 0, behavior: "instant" });
+      });
+      return true;
+    } finally {
+      isRestoringNav = false;
+    }
+  }
+
+  function updateFloatingStudyFab() {
+    const gemFab = document.getElementById("btn-reader-gem-fab");
+    if (!gemFab) return;
+    const hideFab = document.body.classList.contains("zen-focus-mode");
+    gemFab.classList.toggle("hidden", hideFab);
+  }
+
   function showMeetingsView(viewName = "week") {
     activeMeetingsView = viewName;
     const contentCard = document.getElementById("meetings-view-content");
     const mediaCard = document.getElementById("meetings-view-media");
     const topWeek = document.getElementById("meetings-topbar-week");
     const topReader = document.getElementById("meetings-topbar-reader");
-    const gemFab = document.getElementById("btn-reader-gem-fab");
 
     if (viewName === "media") {
       contentCard?.classList.add("hidden");
       mediaCard?.classList.remove("hidden");
-      gemFab?.classList.add("hidden");
+      updateFloatingStudyFab();
       return;
     }
 
@@ -183,13 +299,16 @@
     contentCard?.classList.toggle("is-meetings-week", isWeek);
     topWeek?.classList.toggle("hidden", !isWeek);
     topReader?.classList.toggle("hidden", isWeek);
-    gemFab?.classList.toggle("hidden", isWeek);
+    updateFloatingStudyFab();
   }
   window.DFWolShowMeetingsView = showMeetingsView;
 
-  function setStudyView(subtab = "notes") {
+  function setStudyView(subtab = "notes", options = {}) {
+    if (!options.fromHistory && !options.skipNavPush && !isRestoringNav && state.activeTab === "study" && activeStudySubtab !== subtab) {
+      pushNavSnapshot();
+    }
     activeStudySubtab = subtab;
-    ["notes", "bookmarks", "playlists", "ai", "reading", "settings"].forEach((v) => {
+    ["notes", "bookmarks", "playlists", "ai", "brother", "reading", "settings"].forEach((v) => {
       document.getElementById(`study-view-${v}`)?.classList.toggle("hidden", v !== subtab);
     });
     document.querySelectorAll("[data-study-subtab]").forEach((btn) => {
@@ -212,9 +331,22 @@
     if (subtab === "reading" && window.DFWolStudy) {
       window.DFWolStudy.renderReadingPlans(document.getElementById("study-reading-plans"), state.readingProgress);
     }
+    if (subtab === "brother" && window.DFWolBrother) {
+      window.DFWolBrother.init();
+      window.DFWolBrother.render("study-view-brother");
+    }
   }
 
-  function loadMeetingsForOffset(offsetWeeks = 0) {
+  function loadMeetingsForOffset(offsetWeeks = 0, options = {}) {
+    if (
+      !options.fromHistory &&
+      !options.skipNavPush &&
+      !isRestoringNav &&
+      state.activeTab === "meetings" &&
+      (activeMeetingsView === "reader" || offsetWeeks !== meetingsWeekOffset)
+    ) {
+      pushNavSnapshot();
+    }
     meetingsWeekOffset = offsetWeeks;
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + offsetWeeks * 7);
@@ -234,7 +366,7 @@
     const langSub = document.getElementById("meetings-week-lang-sub");
     if (langSub) langSub.textContent = state.lang === "en" ? "English" : "Français";
     showMeetingsView("week");
-    window.DFWolReader && window.DFWolReader.openArticleInApp(info.wolMeetingsUrl, { lang: state.lang, skipTabSwitch: true });
+    return window.DFWolReader && window.DFWolReader.openArticleInApp(info.wolMeetingsUrl, { lang: state.lang, skipTabSwitch: true, fromHistory: Boolean(options.fromHistory) });
   }
 
   function switchTab(tabId, options = {}) {
@@ -242,6 +374,9 @@
     if (tabId === "widget" || tabId === "settings") {
       tabId = "study";
       options.studySubtab = options.studySubtab || "settings";
+    } else if (tabId === "brother") {
+      tabId = "study";
+      options.studySubtab = "brother";
     } else if (tabId === "search") {
       tabId = "library";
       options.libSubtab = options.libSubtab || "search";
@@ -253,15 +388,11 @@
       options.meetingsView = options.meetingsView || "reader";
     }
 
-    if (!options.fromBack && state.activeTab !== tabId) {
+    if (!options.fromBack && !options.skipNavPush && !isRestoringNav && state.activeTab !== tabId) {
+      pushNavSnapshot();
       if (tabHistory[tabHistory.length - 1] !== tabId) {
         tabHistory.push(tabId);
         if (tabHistory.length > 25) tabHistory.shift();
-      }
-      if (!options.skipPushState && window.history && typeof window.history.pushState === "function") {
-        try {
-          window.history.pushState({ tab: tabId }, "");
-        } catch (_) {}
       }
     }
 
@@ -273,31 +404,49 @@
     if (tabId !== "bible" && tabId !== "meetings") {
       toggleFocusMode(false, { silent: true });
     }
+    updateFloatingStudyFab();
     if (tabChanged && !options.preserveScroll) {
       window.scrollTo({ top: 0, behavior: "instant" });
     }
     window.dispatchEvent(new Event("dfwol:viewchange"));
 
     if (tabId === "library" && window.DFWolLibrary) {
-      window.DFWolLibrary.setLibraryView(options.libSubtab || window.DFWolLibrary.getActiveSubtab() || "publications");
+      window.DFWolLibrary.setLibraryView(options.libSubtab || window.DFWolLibrary.getActiveSubtab() || "publications", {
+        fromHistory: Boolean(options.fromBack),
+        skipNavPush: true
+      });
     }
     if (tabId === "meetings") {
       if (options.meetingsView) showMeetingsView(options.meetingsView);
       if (window.DFWolReader && !window.DFWolReader.getCurrentArticleData() && !options.skipAutoMeetings) {
-        loadMeetingsForOffset(meetingsWeekOffset);
+        loadMeetingsForOffset(meetingsWeekOffset, { skipNavPush: true });
       }
     }
     if (tabId === "study") {
-      setStudyView(options.studySubtab || activeStudySubtab || "notes");
+      setStudyView(options.studySubtab || activeStudySubtab || "notes", { fromHistory: Boolean(options.fromBack), skipNavPush: true });
     }
   }
 
-  function openBibleAt(bookNum, chapter, verseOrSpec = 1, lang = state.lang) {
-    switchTab("bible");
-    setBibleView("reader", bookNum);
-    document.getElementById("picker-book").value = String(bookNum);
-    populateChapterSelect(bookNum, chapter);
-    window.DFWolReader.openBibleChapter(bookNum, chapter, verseOrSpec, lang);
+  function openBibleAt(bookNum, chapter, verseOrSpec = 1, lang = state.lang, options = {}) {
+    const curB = window.DFWolReader?.getCurrentBibleState?.();
+    const targetB = Number(bookNum);
+    const targetCh = Number(chapter);
+    if (
+      !options.fromHistory &&
+      !options.skipNavPush &&
+      !isRestoringNav &&
+      (state.activeTab !== "bible" ||
+        activeBibleSubtab !== "reader" ||
+        Number(curB?.bookNum) !== targetB ||
+        Number(curB?.chapter) !== targetCh)
+    ) {
+      pushNavSnapshot();
+    }
+    switchTab("bible", { fromBack: true, skipNavPush: true, preserveScroll: true });
+    setBibleView("reader", targetB, { skipNavPush: true });
+    document.getElementById("picker-book").value = String(targetB);
+    populateChapterSelect(targetB, targetCh);
+    window.DFWolReader.openBibleChapter(targetB, targetCh, verseOrSpec, lang, undefined, { skipNavPush: true });
   }
 
   window.DFWolOpenDailyText = async function () {
@@ -318,7 +467,7 @@
     }
   };
 
-  function handleBackNavigation() {
+  async function handleBackNavigation() {
     if (document.getElementById("dfwol-floating-card-menu")) {
       window.DFWolStudy ? window.DFWolStudy.closeContextMenu() : document.getElementById("dfwol-floating-card-menu")?.remove();
       return;
@@ -339,6 +488,8 @@
       "study-gem-drawer",
       "cmd-palette-backdrop",
       "audio-queue-drawer",
+      "audio-voice-popover",
+      "reader-display-popover",
       "text-selection-toolbar"
     ]) {
       const el = document.getElementById(modalId);
@@ -346,6 +497,12 @@
         el.classList.add("hidden");
         return;
       }
+    }
+
+    const gsp = document.getElementById("global-study-panel");
+    if (gsp && !gsp.classList.contains("hidden")) {
+      window.DFWolStudy?.closeArticleStudyPane?.();
+      return;
     }
 
     const vidStage = document.getElementById("video-player-stage");
@@ -356,11 +513,17 @@
       return;
     }
 
+    if (navStack.length > 0) {
+      const prevSnap = navStack.pop();
+      await restoreNavSnapshot(prevSnap);
+      return;
+    }
+
     if (state.activeTab === "bible" && activeBibleSubtab !== "books") {
       if (activeBibleSubtab === "reader") {
-        setBibleView("chapters", selectedBibleBookNum);
+        setBibleView("chapters", selectedBibleBookNum, { fromHistory: true });
       } else {
-        setBibleView("books");
+        setBibleView("books", selectedBibleBookNum, { fromHistory: true });
       }
       return;
     }
@@ -373,13 +536,6 @@
       if (window.DFWolReader && window.DFWolReader.canGoBack()) {
         if (window.DFWolReader.goBack()) return;
       }
-    }
-
-    if (tabHistory.length > 1) {
-      tabHistory.pop();
-      const prevTab = tabHistory[tabHistory.length - 1] || "dashboard";
-      switchTab(prevTab, { fromBack: true });
-      return;
     }
 
     if (state.activeTab !== "dashboard") {
@@ -472,6 +628,7 @@
   function toggleFocusMode(forceState, options = {}) {
     const next = typeof forceState === "boolean" ? forceState : !document.body.classList.contains("zen-focus-mode");
     document.body.classList.toggle("zen-focus-mode", next);
+    updateFloatingStudyFab();
     ["reader-btn-focus", "btn-bible-focus"].forEach((id) => {
       const btn = document.getElementById(id);
       if (btn) {
@@ -927,7 +1084,16 @@
   let activeBibleSubtab = "books";
   let selectedBibleBookNum = 1;
 
-  function setBibleView(viewName, bookNum = selectedBibleBookNum) {
+  function setBibleView(viewName, bookNum = selectedBibleBookNum, options = {}) {
+    if (
+      !options.fromHistory &&
+      !options.skipNavPush &&
+      !isRestoringNav &&
+      state.activeTab === "bible" &&
+      (activeBibleSubtab !== viewName || (bookNum && Number(bookNum) !== Number(selectedBibleBookNum)))
+    ) {
+      pushNavSnapshot();
+    }
     activeBibleSubtab = viewName;
     if (bookNum) selectedBibleBookNum = Number(bookNum);
 
@@ -1426,6 +1592,7 @@
       { label: "🎵 Contenus Audio & MP3", fn: () => switchTab("library", { libSubtab: "audio" }) },
       { label: "📅 Réunions & Lecteur de Publications", fn: () => switchTab("meetings") },
       { label: "✨ Assistant IA 1-clic & Clé API", fn: () => switchTab("study", { studySubtab: "ai" }) },
+      { label: "🧭 Spiritual Brother (IA 100% locale — 32 outils)", fn: () => switchTab("study", { studySubtab: "brother" }) },
       { label: "💎 Étude individuelle, Notes & Marque-pages", fn: () => switchTab("study", { studySubtab: "notes" }) },
       { label: "🔖 Marque-pages Rubans", fn: () => switchTab("study", { studySubtab: "bookmarks" }) },
       { label: "🎶 Listes de lecture", fn: () => switchTab("study", { studySubtab: "playlists" }) },
@@ -1586,9 +1753,15 @@
           window.DFWolStudy.closeFindBar();
           return;
         }
+        const gsp = document.getElementById("global-study-panel");
+        if (gsp && !gsp.classList.contains("hidden")) {
+          window.DFWolStudy?.closeArticleStudyPane?.();
+          return;
+        }
         for (const id of [
           "dfwol-input-modal",
           "text-selection-toolbar",
+          "reader-display-popover",
           "audio-voice-popover",
           "audio-queue-drawer",
           "note-edit-modal",
@@ -1685,6 +1858,9 @@
     ["btn-header-ai", "hero-btn-ai"].forEach((id) => {
       document.getElementById(id)?.addEventListener("click", () => switchTab("study", { studySubtab: "ai" }));
     });
+    ["hero-btn-brother", "dash-open-brother"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("click", () => switchTab("study", { studySubtab: "brother" }));
+    });
     document.getElementById("btn-header-settings")?.addEventListener("click", () => switchTab("study", { studySubtab: "settings" }));
 
     // Contrôles Réunions 1:1 (Semaine < >, Voir les médias, Topbar Lecteur, Panneau étude, Historique)
@@ -1708,9 +1884,12 @@
       showMeetingsView(window.DFWolReader?.getCurrentArticleData() ? "reader" : "week");
     });
     document.getElementById("btn-meetings-reader-back")?.addEventListener("click", () => {
-      if (!window.DFWolReader?.goBack()) {
-        loadMeetingsForOffset(meetingsWeekOffset);
+      if (window.DFWolReader?.canGoBack() && window.DFWolReader.goBack()) return;
+      if (navStack.length > 0 && navStack[navStack.length - 1].tab === "meetings") {
+        restoreNavSnapshot(navStack.pop());
+        return;
       }
+      loadMeetingsForOffset(meetingsWeekOffset, { fromHistory: true });
     });
     document.getElementById("btn-reader-top-week")?.addEventListener("click", () => {
       showMeetingsView("week");
@@ -1736,9 +1915,24 @@
       const art = window.DFWolReader?.getCurrentArticleData();
       if (!art || !window.DFWolAudio) return;
       if (art.mp3Url) {
-        window.DFWolAudio.playTrack({ title: art.title, subtitle: art.citation, audioUrl: art.mp3Url, lang: art.lang, mode: "mp3" });
+        window.DFWolAudio.playTrack({
+          title: art.title,
+          subtitle: art.citation,
+          audioUrl: art.mp3Url,
+          mp3Markers: art.mp3Markers || null,
+          paragraphs: art.paragraphs,
+          docId: art.docId,
+          lang: art.lang,
+          mode: "mp3"
+        });
       } else {
-        window.DFWolAudio.playTrack({ title: art.title, subtitle: "Lecture vocale IA", paragraphs: art.paragraphs, lang: art.lang, mode: "tts" });
+        window.DFWolAudio.playTrack({
+          title: art.title,
+          subtitle: "Lecture vocale IA",
+          paragraphs: art.paragraphs,
+          lang: art.lang,
+          mode: "tts"
+        });
       }
     });
     document.getElementById("btn-reader-top-search")?.addEventListener("click", () => {
@@ -1760,12 +1954,20 @@
     document.getElementById("btn-reader-top-more")?.addEventListener("click", (e) => {
       const art = window.DFWolReader?.getCurrentArticleData();
       if (art && window.DFWolReader.showCardActionMenu) {
-        window.DFWolReader.showCardActionMenu(e.currentTarget, { title: art.title, url: art.url, lang: art.lang });
+        window.DFWolReader.showCardActionMenu(e.currentTarget, {
+          title: art.title,
+          url: art.url,
+          lang: art.lang,
+          isReaderTopbar: true
+        });
       }
     });
 
-    // Panneau d'étude côte-à-côte & FAB 💎
-    ["btn-reader-gem-fab", "btn-reader-top-study", "reader-btn-study-pane"].forEach((id) => {
+    // Volet latéral Étude individuelle & FAB flottant global
+    document.getElementById("btn-reader-gem-fab")?.addEventListener("click", () => {
+      window.DFWolStudy && (window.DFWolStudy.toggleStudySidePanel ? window.DFWolStudy.toggleStudySidePanel() : window.DFWolStudy.openArticleStudyPane());
+    });
+    ["btn-reader-top-study", "reader-btn-study-pane"].forEach((id) => {
       document.getElementById(id)?.addEventListener("click", () => {
         window.DFWolStudy && window.DFWolStudy.openArticleStudyPane();
       });
@@ -2090,8 +2292,12 @@
     });
 
     document.getElementById("btn-bible-back")?.addEventListener("click", () => {
-      if (activeBibleSubtab === "reader") setBibleView("chapters", selectedBibleBookNum);
-      else setBibleView("books");
+      if (navStack.length > 0) {
+        restoreNavSnapshot(navStack.pop());
+        return;
+      }
+      if (activeBibleSubtab === "reader") setBibleView("chapters", selectedBibleBookNum, { fromHistory: true });
+      else setBibleView("books", selectedBibleBookNum, { fromHistory: true });
     });
 
     document.getElementById("btn-bible-top-search")?.addEventListener("click", () => {
@@ -2598,6 +2804,51 @@
       });
     }
 
+    if (window.DFWolAudio?.getTtsOptions && window.DFWolAudio?.setTtsOptions) {
+      const opts = window.DFWolAudio.getTtsOptions();
+      const pitchSelects = [document.getElementById("audio-tts-pitch"), document.getElementById("settings-tts-pitch")].filter(Boolean);
+      pitchSelects.forEach((sel) => {
+        sel.value = opts.pitch || "0%";
+        sel.addEventListener("change", (e) => {
+          const val = e.target.value;
+          window.DFWolAudio.setTtsOptions({ pitch: val });
+          pitchSelects.forEach((other) => {
+            if (other !== e.target) other.value = val;
+          });
+        });
+      });
+
+      const pauseSel = document.getElementById("settings-tts-pause");
+      if (pauseSel) {
+        pauseSel.value = String(opts.paragraphPauseMs ?? 400);
+        pauseSel.addEventListener("change", (e) => {
+          window.DFWolAudio.setTtsOptions({ paragraphPauseMs: Number(e.target.value) });
+        });
+      }
+
+      const autoScrollCb = document.getElementById("settings-tts-autoscroll");
+      if (autoScrollCb) {
+        autoScrollCb.checked = opts.autoScroll !== false;
+        autoScrollCb.addEventListener("change", (e) => {
+          window.DFWolAudio.setTtsOptions({ autoScroll: e.target.checked });
+        });
+      }
+
+      ["btn-settings-voice-preview", "audio-btn-voice-preview"].forEach((id) => {
+        document.getElementById(id)?.addEventListener("click", () => {
+          window.DFWolAudio.previewSelectedVoice?.(state.lang);
+        });
+      });
+    }
+
+    document.getElementById("btn-clear-page-cache")?.addEventListener("click", async () => {
+      if (window.DFWolNet?.clearHtmlCache) {
+        await window.DFWolNet.clearHtmlCache();
+        showToast("Cache persistant vidé !");
+        window.updateSettingsStats && window.updateSettingsStats();
+      }
+    });
+
     const collectAnswers = () => {
       const answers = {};
       try {
@@ -2631,6 +2882,13 @@
       setTxt("settings-stats-answers", Object.keys(ans).length);
       setTxt("settings-stats-chapters", `${totalCh} / 1189`);
       setTxt("settings-stats-playlists", plCount);
+      if (window.DFWolNet?.getCacheStats) {
+        window.DFWolNet.getCacheStats().then((cs) => {
+          const n = cs?.count ?? 0;
+          const kb = cs?.approxKb ?? 0;
+          setTxt("settings-stats-cache", `${n} page${n > 1 ? "s" : ""} (${kb} Ko)`);
+        }).catch(() => {});
+      }
     };
 
     const deliverExport = async (content, filename, mimeType) => {
@@ -2857,6 +3115,7 @@
     window.DFWolVideo.init();
     window.DFWolExport && window.DFWolExport.init();
     window.DFWolAI && window.DFWolAI.init();
+    window.DFWolBrother && window.DFWolBrother.init();
     window.DFWolStudy && window.DFWolStudy.init();
     window.DFWolLibrary && window.DFWolLibrary.init();
 
@@ -2876,7 +3135,9 @@
     window.DFWolShowBibleView = setBibleView;
     updateSettingsStats();
     applyReadingComfort();
+    updateFloatingStudyFab();
     renderHomeHero();
+    window.DFWolLibrary && window.DFWolLibrary.loadJwHomeFeatured && window.DFWolLibrary.loadJwHomeFeatured(state.lang);
     window.DFWolLibrary && window.DFWolLibrary.loadHomeNewsPreview(state.lang);
     checkStartupUrlParams();
     setupPwa();

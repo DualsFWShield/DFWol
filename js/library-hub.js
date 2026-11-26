@@ -15,6 +15,7 @@ window.DFWolLibrary = (function () {
   let loadedLangAudio = null;
   let loadedLangNews = null;
   let loadedLangHomeNews = null;
+  let loadedLangFeatured = null;
   let wolCategoryUrls = { fr: {}, en: {} };
   let pubDrillStack = [];
   let audioDrillStack = [];
@@ -877,22 +878,47 @@ window.DFWolLibrary = (function () {
     try {
       const res = await window.DFWolNet.fetchWolHtml(item.link, { skipValidation: true });
       const doc = new DOMParser().parseFromString(res.html, "text/html");
+      const articleEl = doc.querySelector("article");
       const contentEl =
-        doc.querySelector("article .articleBodyTxt") ||
-        doc.querySelector(".docSubContent") ||
-        doc.querySelector("article") ||
-        doc.querySelector("main");
+        articleEl ||
+        doc.querySelector("main .articleBodyTxt") ||
+        doc.querySelector("main") ||
+        doc.querySelector(".docSubContent");
       if (!contentEl) {
         fallbackOpen();
         return;
       }
 
+      const docIdMatch = ((articleEl?.className || "") + " " + (doc.body?.className || "")).match(/\bdocId-(\d+)\b/);
+      const extractedDocId = docIdMatch ? docIdMatch[1] : (articleEl?.getAttribute("data-docid") || null);
+
       const clone = contentEl.cloneNode(true);
-      clone.querySelectorAll("script, style, noscript, iframe, object, embed, form, meta, link").forEach((el) => el.remove());
+      clone.querySelectorAll("script, style, noscript, iframe, object, embed, form, meta, link, nav, .pageNav, .jsSocialShare, .shareLinks, .audioPlayer").forEach((el) => el.remove());
       clone.querySelectorAll("*").forEach((el) => {
         Array.from(el.attributes).forEach((attr) => {
           if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
         });
+      });
+      clone.querySelectorAll(".jsRespImg, [data-img-size-lg], [data-img-size-md]").forEach((el) => {
+        if (el.tagName === "IMG") return;
+        const imgUrl =
+          el.getAttribute("data-img-size-lg") ||
+          el.getAttribute("data-img-size-md") ||
+          el.getAttribute("data-img-size-sm") ||
+          el.getAttribute("data-img-size-xs") ||
+          "";
+        if (!imgUrl) return;
+        const abs = imgUrl.startsWith("/") ? `https://www.jw.org${imgUrl}` : imgUrl;
+        const fig = document.createElement("figure");
+        fig.className = "jw-figure-card";
+        const img = document.createElement("img");
+        img.src = toProxiedImg(abs);
+        img.alt = el.getAttribute("data-img-att-alt") || el.getAttribute("title") || "";
+        img.className = "jw-figure-img";
+        img.setAttribute("referrerpolicy", "no-referrer");
+        img.setAttribute("loading", "lazy");
+        fig.appendChild(img);
+        el.replaceWith(fig);
       });
       clone.querySelectorAll("img").forEach((img) => {
         const s = img.getAttribute("src") || img.getAttribute("data-src") || "";
@@ -913,9 +939,9 @@ window.DFWolLibrary = (function () {
       });
 
       const paragraphs = [];
-      clone.querySelectorAll("p, h2, h3").forEach((p, idx) => {
+      clone.querySelectorAll("p, h2, h3, h4, li, blockquote, figcaption").forEach((p, idx) => {
         const t = cleanStr(p.textContent || "");
-        if (t.length > 5) {
+        if (t.length > 3) {
           const pid = `nwp-${idx}`;
           p.setAttribute("data-reader-pid", pid);
           paragraphs.push({ pid, text: t });
@@ -930,7 +956,7 @@ window.DFWolLibrary = (function () {
       window.DFWolReader &&
         window.DFWolReader.openParsedArticleObject({
           url: item.link,
-          docId: null,
+          docId: extractedDocId,
           lang,
           title: cleanStr(doc.querySelector("h1")?.textContent || item.title),
           citation: item.section || "JW.org Actualités",
@@ -1061,6 +1087,148 @@ window.DFWolLibrary = (function () {
     }
   }
 
+  async function loadJwHomeFeatured(lang = "fr") {
+    const container = document.getElementById("dash-jw-featured-body");
+    if (!container) return;
+    if (loadedLangFeatured === lang && container.dataset.loaded === "1") return;
+
+    const code = lang === "en" ? "en" : "fr";
+    const homeUrl = `https://www.jw.org/${code}/`;
+    const resolveJwUrl = (href) => {
+      if (!href) return "";
+      return href.startsWith("http") ? href : `https://www.jw.org${href.startsWith("/") ? "" : "/"}${href}`;
+    };
+    const extractRespImg = (rootEl) => {
+      if (!rootEl) return "";
+      const mediaDiv = rootEl.querySelector(".billboard-media-image, [style*='background-image']");
+      const styleAttr = mediaDiv?.getAttribute("style") || "";
+      const bgMatch = styleAttr.match(/url\(['"]?([^'")]+)['"]?\)/i);
+      if (bgMatch?.[1]) return toProxiedImg(resolveJwUrl(bgMatch[1]));
+      const respEl = rootEl.querySelector(".jsRespImg, [data-img-size-lg], [data-img-size-md], [data-img-size-sm]");
+      const respUrl =
+        respEl?.getAttribute("data-img-size-lg") ||
+        respEl?.getAttribute("data-img-size-md") ||
+        respEl?.getAttribute("data-img-size-sm") ||
+        "";
+      if (respUrl) return toProxiedImg(resolveJwUrl(respUrl));
+      const img = rootEl.querySelector("img");
+      const src = img?.getAttribute("src") || img?.getAttribute("data-src") || "";
+      return src ? toProxiedImg(resolveJwUrl(src)) : "";
+    };
+
+    try {
+      const res = await window.DFWolNet.fetchWolHtml(homeUrl, { skipValidation: true, timeoutMs: 12000 });
+      const doc = new DOMParser().parseFromString(res.html, "text/html");
+
+      let hero = null;
+      const bb = doc.querySelector(".billboard");
+      if (bb) {
+        const titleA = bb.querySelector(".billboardTitle a, h1 a, h2 a");
+        const titleEl = titleA || bb.querySelector(".billboardTitle, h1, h2");
+        const href = titleA?.getAttribute("href") || bb.querySelector("a[href]")?.getAttribute("href") || "";
+        const desc = cleanStr(bb.querySelector(".billboardDescription, p")?.textContent || "");
+        const title = cleanStr(titleEl?.textContent || "");
+        if (title) {
+          hero = {
+            title,
+            description: desc,
+            link: resolveJwUrl(href),
+            image: extractRespImg(bb),
+            section: code === "en" ? "Featured on JW.org" : "À la une sur JW.org"
+          };
+        }
+      }
+
+      const subItems = [];
+      const synEls = Array.from(doc.querySelectorAll(".homeFeaturedGrid .synopsis, main .synopsis")).slice(0, 4);
+      synEls.forEach((syn) => {
+        if (bb && bb.contains(syn)) return;
+        const a = syn.querySelector(".syn-body h3 a, h3 a, .syn-body a[href], a[href]");
+        const title = cleanStr(a?.textContent || syn.querySelector("h3, h2")?.textContent || "");
+        const href = a?.getAttribute("href") || "";
+        const desc = cleanStr(syn.querySelector(".syn-body p, p")?.textContent || "");
+        const image = extractRespImg(syn);
+        if (title && href && (!hero || hero.title !== title)) {
+          subItems.push({
+            title,
+            description: desc,
+            link: resolveJwUrl(href),
+            image,
+            section: code === "en" ? "JW.org Home" : "Accueil JW.org"
+          });
+        }
+      });
+
+      if (!hero && subItems.length > 0) {
+        hero = subItems.shift();
+      }
+      if (!hero) {
+        if (container.dataset.loaded !== "1") {
+          container.innerHTML = `<p class="card-helper-text">${code === "en" ? "Featured article unavailable offline." : "Article à la une indisponible hors-ligne."}</p>`;
+        }
+        return;
+      }
+
+      loadedLangFeatured = lang;
+      container.dataset.loaded = "1";
+      const itemsPool = [hero, ...subItems.slice(0, 3)];
+
+      container.innerHTML = `
+        <div class="jw-featured-hero-card">
+          ${hero.image ? `<img src="${esc(hero.image)}" alt="${esc(hero.title)}" class="jw-featured-hero-img" referrerpolicy="no-referrer" loading="lazy" />` : ""}
+          <div class="jw-featured-hero-body">
+            <span class="badge badge-blue">${esc(hero.section)}</span>
+            <h4>${esc(hero.title)}</h4>
+            ${hero.description ? `<p>${esc(hero.description)}</p>` : ""}
+            <div class="btn-group" style="margin-top:0.55rem;">
+              <button type="button" class="btn-primary btn-xs" data-open-jw-featured="0">📖 Lire dans DFWol</button>
+              <button type="button" class="btn-secondary btn-xs" data-play-jw-featured="0">🎧 Écouter</button>
+            </div>
+          </div>
+        </div>
+        ${itemsPool.length > 1 ? `
+          <div class="jw-featured-subgrid">
+            ${itemsPool.slice(1).map((it, idx) => `
+              <button type="button" class="jw-featured-subcard" data-open-jw-featured="${idx + 1}">
+                ${it.image ? `<img src="${esc(it.image)}" alt="" referrerpolicy="no-referrer" loading="lazy" />` : ""}
+                <div>
+                  <strong>${esc(it.title)}</strong>
+                  ${it.description ? `<small>${esc(it.description.slice(0, 95))}</small>` : ""}
+                </div>
+              </button>
+            `).join("")}
+          </div>
+        ` : ""}
+      `;
+
+      container.querySelectorAll("[data-open-jw-featured]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = itemsPool[Number(btn.getAttribute("data-open-jw-featured"))];
+          if (item) openNewsArticleInApp(item, lang);
+        });
+      });
+
+      container.querySelector("[data-play-jw-featured='0']")?.addEventListener("click", async () => {
+        window.DFWolToast && window.DFWolToast("⏳ Préparation de la lecture vocale…");
+        await openNewsArticleInApp(hero, lang);
+        const curArt = window.DFWolReader?.getCurrentArticleData?.();
+        if (curArt && window.DFWolAudio) {
+          window.DFWolAudio.playTrack({
+            title: curArt.title,
+            subtitle: hero.section,
+            paragraphs: curArt.paragraphs,
+            lang,
+            mode: "tts"
+          });
+        }
+      });
+    } catch (_) {
+      if (container.dataset.loaded !== "1") {
+        container.innerHTML = `<p class="card-helper-text">À la une JW.org disponible une fois connecté.</p>`;
+      }
+    }
+  }
+
   async function loadHomeNewsPreview(lang = "fr") {
     const container = document.getElementById("dash-news-list");
     if (!container) return;
@@ -1103,7 +1271,17 @@ window.DFWolLibrary = (function () {
   // 5. Navigation sous-onglets Bibliothèque
   // ==========================================================================
 
-  function setLibraryView(subtab = "publications") {
+  function setLibraryView(subtab = "publications", opts = {}) {
+    if (
+      !opts?.fromHistory &&
+      !opts?.skipNavPush &&
+      !window.DFWolIsRestoringNav?.() &&
+      document.getElementById("tab-library")?.classList.contains("active") &&
+      activeSubtab &&
+      activeSubtab !== subtab
+    ) {
+      window.DFWolPushNavSnapshot?.();
+    }
     activeSubtab = subtab;
     const views = ["publications", "videos", "audio", "news", "downloads", "search"];
     views.forEach((v) => {
@@ -1138,7 +1316,9 @@ window.DFWolLibrary = (function () {
     loadedLangAudio = null;
     loadedLangNews = null;
     loadedLangHomeNews = null;
-    setLibraryView(activeSubtab);
+    loadedLangFeatured = null;
+    setLibraryView(activeSubtab, { skipNavPush: true });
+    loadJwHomeFeatured(lang);
     loadHomeNewsPreview(lang);
   }
 
@@ -1212,6 +1392,7 @@ window.DFWolLibrary = (function () {
     setLibraryView,
     refreshForLanguage,
     loadNewsView,
+    loadJwHomeFeatured,
     loadHomeNewsPreview,
     saveArticleOffline,
     getOfflineArticle,

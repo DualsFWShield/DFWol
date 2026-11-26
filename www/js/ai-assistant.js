@@ -12,8 +12,8 @@ window.DFWolAI = (function () {
   const PROVIDER_PRESETS = {
     gemini: {
       label: "Google Gemini",
-      defaultModel: "gemini-2.5-flash",
-      models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+      defaultModel: "gemini-3.8-flash",
+      models: ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
       keyHint: "Clé AIza… (Google AI Studio)"
     },
     openai: {
@@ -79,7 +79,8 @@ window.DFWolAI = (function () {
   const defaultConfig = {
     provider: "gemini",
     apiKey: "",
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
+    modelPinned: false,
     endpointUrl: "",
     responseStyle: "meeting_short",
     customSystemPrompt: "",
@@ -96,7 +97,11 @@ window.DFWolAI = (function () {
   function loadConfig() {
     try {
       const raw = JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || "null");
-      return Object.assign({}, defaultConfig, raw || {});
+      const merged = Object.assign({}, defaultConfig, raw || {});
+      if (merged.provider === "gemini" && merged.model === "gemini-2.5-flash" && !raw?.modelPinned) {
+        merged.model = "gemini-3.8-flash";
+      }
+      return merged;
     } catch (_) {
       return Object.assign({}, defaultConfig);
     }
@@ -234,7 +239,7 @@ window.DFWolAI = (function () {
       articlesEntries.push({
         title: params.title || (lang === "en" ? "Current Publication Context" : "Extrait de la publication en cours"),
         citation: params.citation || "",
-        text: cleanStr(params.contextText).slice(0, 6000)
+        text: cleanStr(params.contextText).slice(0, 32000)
       });
     }
 
@@ -242,7 +247,7 @@ window.DFWolAI = (function () {
       articlesEntries.push({
         title: `${params.title || "Vidéo"} — Sous-titres`,
         citation: "Transcription VTT",
-        text: cleanStr(params.transcriptText).slice(0, 7000)
+        text: cleanStr(params.transcriptText).slice(0, 24000)
       });
     }
 
@@ -265,7 +270,7 @@ window.DFWolAI = (function () {
               articlesEntries.push({
                 title: art.title || "Article",
                 citation: art.citation || "",
-                text: cleanStr(art.plainText).slice(0, 3500)
+                text: cleanStr(art.plainText).slice(0, 12000)
               });
               return;
             }
@@ -276,7 +281,7 @@ window.DFWolAI = (function () {
               articlesEntries.push({
                 title: parsed.title || art.title,
                 citation: parsed.citation || art.citation || "",
-                text: cleanStr(parsed.plainText).slice(0, 3500)
+                text: cleanStr(parsed.plainText).slice(0, 12000)
               });
             } catch (_) {}
           })
@@ -358,7 +363,7 @@ window.DFWolAI = (function () {
 
     if (provider === "gemini") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model || "gemini-2.5-flash"
+        model || "gemini-3.8-flash"
       )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
       const contents = messages.map((m) => ({
@@ -372,7 +377,7 @@ window.DFWolAI = (function () {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents,
-          generationConfig: { temperature: 0.4 }
+          generationConfig: { temperature: 0.4, maxOutputTokens: 8192 }
         })
       });
       const json = await resp.json().catch(() => ({}));
@@ -904,10 +909,13 @@ window.DFWolAI = (function () {
     });
 
     document.getElementById("btn-ai-save-config")?.addEventListener("click", () => {
+      const nextProv = document.getElementById("ai-provider-select")?.value || "gemini";
+      const nextModel = document.getElementById("ai-model-input")?.value.trim() || "";
       saveConfig({
-        provider: document.getElementById("ai-provider-select")?.value || "gemini",
+        provider: nextProv,
         apiKey: document.getElementById("ai-apikey-input")?.value.trim() || "",
-        model: document.getElementById("ai-model-input")?.value.trim() || "",
+        model: nextModel,
+        modelPinned: Boolean(nextModel && nextModel !== PROVIDER_PRESETS[nextProv]?.defaultModel),
         endpointUrl: document.getElementById("ai-endpoint-input")?.value.trim() || "",
         responseStyle: document.getElementById("ai-style-select")?.value || "meeting_short",
         customSystemPrompt: document.getElementById("ai-system-prompt-input")?.value.trim() || "",

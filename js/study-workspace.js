@@ -37,6 +37,9 @@ window.DFWolStudy = (function () {
   ];
 
   let activeArticlePaneTab = "verses";
+  let sidePanelTab = "verse"; // 'verse' | 'verses' | 'notes' | 'actions'
+  let currentSidePayload = null;
+  const sidePanelStack = [];
   let findMatches = [];
   let findCurrentIdx = -1;
   let findActive = false;
@@ -686,7 +689,8 @@ window.DFWolStudy = (function () {
         window.DFWolReader.renderVerseStudyPanel([vn], { activeTab: "compare" });
       } },
       { label: "📋 Copier le verset", onClick: () => safeCopyText(`${refLabel} — ${vText}`, `${refLabel} copié !`) },
-      { label: "🗣️ Écouter ce verset", onClick: () => window.DFWolAudio && window.DFWolAudio.playTrack({ title: refLabel, subtitle: "Bible d'étude", text: `${refLabel}. ${vText}`, lang: data.lang, mode: "tts" }) },
+      { label: "🎧 MP3 Bible dès ce verset", onClick: () => window.DFWolAudio && window.DFWolAudio.playMp3FromVerse(vn, data) },
+      { label: "🗣️ Voix IA sur ce verset", onClick: () => window.DFWolAudio && window.DFWolAudio.playTrack({ title: refLabel, subtitle: "Bible d'étude", text: `${refLabel}. ${vText}`, lang: data.lang, mode: "tts" }) },
       { divider: true },
       { label: `<span class="cm-hl-dots"><span class="hl-dot hl-yellow"></span></span> Surligner Jaune`, htmlLabel: true, onClick: () => applyColorHighlight("yellow") },
       { label: `<span class="cm-hl-dots"><span class="hl-dot hl-pink"></span></span> Surligner Rose`, htmlLabel: true, onClick: () => applyColorHighlight("pink") },
@@ -716,14 +720,19 @@ window.DFWolStudy = (function () {
       const pTxt = cleanStr(artPara.textContent || "");
       const pid = artPara.getAttribute("data-reader-pid") || artPara.id || "";
       if (art && pTxt) {
-        openContextMenu(clientX, clientY, [
-          { label: "🗣️ Lire TTS à partir d'ici", onClick: () => window.DFWolAudio && window.DFWolAudio.playFromParagraph(pid, art) },
+        const ctxItems = [];
+        if (art.mp3Url) {
+          ctxItems.push({ label: "🎧 Lire le MP3 depuis ici", onClick: () => window.DFWolAudio && window.DFWolAudio.playMp3FromParagraph(pid, art) });
+        }
+        ctxItems.push(
+          { label: "🗣️ Voix IA depuis ici", onClick: () => window.DFWolAudio && window.DFWolAudio.playFromParagraph(pid, art) },
           { label: "📋 Copier ce paragraphe", onClick: () => safeCopyText(pTxt, "Paragraphe copié !") },
           { label: "📝 Ajouter aux notes", onClick: () => window.DFWolAddNote && window.DFWolAddNote(art.title, "Réunion", pTxt, { targetType: "article", url: art.url, docKey: art.docId || art.url }) },
           { label: "🔖 Placer un marque-page ruban", onClick: () => openBookmarkPopover(artPara, { type: "article", title: art.title, subtitle: art.citation, url: art.url, lang: art.lang }) },
           { label: "✨ IA 1-clic sur ce paragraphe", onClick: () => window.DFWolAI && window.DFWolAI.prepareAndOpen({ title: art.title, citation: art.citation, question: `Explique ce paragraphe et les versets cités : « ${pTxt.slice(0, 260)} »`, contextText: pTxt, refsText: pTxt, lang: art.lang }) },
           { label: "🔗 Partager le lien", onClick: () => shareDeepLink({ title: art.title, params: { tab: "meetings", article: art.docId || art.url } }) }
-        ]);
+        );
+        openContextMenu(clientX, clientY, ctxItems);
         return true;
       }
     }
@@ -1061,54 +1070,379 @@ window.DFWolStudy = (function () {
   }
 
   // ==========================================================================
-  // 8. Panneau d'Étude Côte-à-Côte Articles & Publications (Desktop / Tablette)
+  // 8. Volet Latéral Unifié « Étude Individuelle » (Sans modale verset)
   // ==========================================================================
 
-  function openArticleStudyPane(tabName = null) {
-    const art = window.DFWolReader?.getCurrentArticleData?.();
-    if (!art) return;
-    if (tabName) activeArticlePaneTab = tabName;
-    const isSmallMobile = window.innerWidth <= 760;
-
-    if (isSmallMobile) {
-      // Sur mobile étroit : ouvrir le tiroir d'étude dédié
-      const drawer = document.getElementById("study-gem-drawer");
-      const body = document.getElementById("gem-drawer-body");
-      if (drawer && body) {
-        renderStudyPaneContents(body, art);
-        drawer.classList.remove("hidden");
-      }
-      return;
-    }
-
-    const shell = document.getElementById("meetings-view-content");
-    const pane = document.getElementById("article-study-pane");
-    if (!shell || !pane) return;
-    shell.classList.add("has-study-pane");
-    pane.classList.remove("hidden");
-    renderStudyPaneContents(pane, art);
+  function showGlobalStudyPanelDrawer() {
+    const panel = document.getElementById("global-study-panel");
+    const bd = document.getElementById("global-study-panel-backdrop");
+    if (!panel) return false;
+    bd?.classList.remove("hidden");
+    panel.classList.remove("hidden");
+    requestAnimationFrame(() => panel.classList.add("is-open"));
+    return true;
   }
 
   function closeArticleStudyPane() {
     document.getElementById("meetings-view-content")?.classList.remove("has-study-pane");
     document.getElementById("article-study-pane")?.classList.add("hidden");
+    const panel = document.getElementById("global-study-panel");
+    if (panel) {
+      panel.classList.remove("is-open");
+      panel.classList.add("hidden");
+    }
+    document.getElementById("global-study-panel-backdrop")?.classList.add("hidden");
   }
 
-  function refreshArticleStudyPane(parsed) {
-    const pane = document.getElementById("article-study-pane");
-    const shell = document.getElementById("meetings-view-content");
-    if (!pane || !shell || !parsed) return;
-    if (shell.classList.contains("has-study-pane") && !pane.classList.contains("hidden")) {
-      renderStudyPaneContents(pane, parsed);
+  function toggleStudySidePanel() {
+    const panel = document.getElementById("global-study-panel");
+    if (panel && !panel.classList.contains("hidden")) {
+      closeArticleStudyPane();
+      return;
+    }
+    if (currentSidePayload) {
+      openStudySidePanel(currentSidePayload, { skipPush: true });
+      return;
+    }
+    openArticleStudyPane();
+  }
+
+  async function renderSideVerseDetails(bodyEl, payload) {
+    const lang = payload.lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr");
+    if (payload.kind === "footnote") {
+      bodyEl.innerHTML = renderSkeleton("article");
+      try {
+        const res = await window.DFWolReader.fetchWolFootnoteOrMarginal(payload.url, lang);
+        bodyEl.innerHTML = `<div class="jwac peek-footnote-body">${res.html}</div>`;
+        window.DFWolReader.attachInAppLinkInterceptor(bodyEl, lang);
+      } catch (err) {
+        bodyEl.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
+      }
+      return;
+    }
+
+    if (payload.kind === "intro") {
+      const book = window.DFWolBible.getBookByNumber(payload.bookNum);
+      const bookName = window.DFWolBible.getBookDisplayName(book, lang);
+      bodyEl.innerHTML = renderSkeleton("list");
+      try {
+        const chData = await window.DFWolReader.fetchBibleChapterParsed(book.num, 1, lang);
+        const outline = Array.isArray(chData.outline) ? chData.outline : [];
+        bodyEl.innerHTML = `
+          <div class="study-panel-verse-box">
+            <span class="badge badge-blue">Aperçu • ${book.chapters} ch.</span>
+            <h3>${esc(bookName)}</h3>
+          </div>
+          ${outline.length
+            ? `<ul class="outline-mini-list">${outline.map((o) => `<li class="ol-lvl-${o.level}">${o.href ? `<a href="${esc(o.href)}">${esc(o.text)}</a>` : esc(o.text)}</li>`).join("")}</ul>`
+            : `<p class="card-helper-text">${esc(bookName)} contient ${book.chapters} chapitre(s).</p>`}
+        `;
+        window.DFWolReader.attachInAppLinkInterceptor(bodyEl, lang);
+      } catch (err) {
+        bodyEl.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
+      }
+      return;
+    }
+
+    // kind === "verse"
+    const versesList = window.DFWolBible.parseVerseSpec(payload.verseOrSpec || 1);
+    const verses = versesList.length ? versesList : [1];
+    const verseSpec = window.DFWolBible.formatVerseSpec(verses, false);
+    const verseSpecCompact = window.DFWolBible.formatVerseSpec(verses, true);
+    const book = window.DFWolBible.getBookByNumber(payload.bookNum);
+    const label = `${window.DFWolBible.getBookDisplayName(book, lang)} ${payload.chapter}:${verseSpec}`;
+    bodyEl.innerHTML = renderSkeleton("article");
+
+    try {
+      const chData = await window.DFWolReader.fetchBibleChapterParsed(book.num, payload.chapter, lang);
+      const matchedObjs = verses.map((vn) => chData.verses.find((v) => v.verse === vn)).filter(Boolean);
+      const plainCombined = matchedObjs.map((v) => `${v.verse}. ${v.text}`).join(" ");
+      const quoteHtml = matchedObjs.length
+        ? matchedObjs.map((v) => `<sup>${v.verse}</sup> ${esc(v.text)}`).join(" ")
+        : "Texte indisponible.";
+
+      const studyNotes = [];
+      const crossRefs = [];
+      const rsgMap = new Map();
+      const pubIdxMap = new Map();
+      verses.forEach((vn) => {
+        const st = chData.studyByVerse[vn];
+        if (!st) return;
+        (st.studyNotesHtml || []).forEach((nh) => {
+          if (!studyNotes.includes(nh)) studyNotes.push(nh);
+        });
+        (st.crossRefs || []).forEach((cr) => {
+          if (!crossRefs.includes(cr)) crossRefs.push(cr);
+        });
+        (st.researchGuide || []).forEach((art) => {
+          const k = `${art.wolUrl}::${art.title}`;
+          if (!rsgMap.has(k)) rsgMap.set(k, art);
+        });
+        (st.pubIndex || []).forEach((dx) => {
+          const k = `${dx.wolUrl}::${dx.title}`;
+          if (!pubIdxMap.has(k)) pubIdxMap.set(k, dx);
+        });
+      });
+
+      const rsgList = Array.from(rsgMap.values());
+      const pubIdxList = Array.from(pubIdxMap.values());
+      const refLinkObj = window.DFWolBible.buildScriptureLinks(book.num, payload.chapter, verses, null, lang);
+
+      let html = `
+        <div class="study-panel-verse-box">
+          <div class="study-panel-verse-head">
+            <h3>${esc(label)}</h3>
+            <span class="badge badge-subtle">${lang.toUpperCase()}</span>
+          </div>
+          <blockquote class="dt-quote">${quoteHtml}</blockquote>
+          <div class="btn-group" style="margin-top:0.55rem;">
+            <button type="button" class="btn-primary btn-xs" id="gsp-open-bible">📖 Chapitre complet</button>
+            <button type="button" class="btn-ai-chip btn-xs" id="gsp-ai-explain">✨ IA 1-clic</button>
+            ${plainCombined ? `<button type="button" class="btn-secondary btn-xs" id="gsp-speak-verse">🗣️ Écouter</button>` : ""}
+            ${plainCombined ? `<button type="button" class="btn-ghost btn-xs" id="gsp-copy-verse">📋</button>` : ""}
+            ${plainCombined ? `<button type="button" class="btn-ghost btn-xs" id="gsp-note-verse">📝</button>` : ""}
+          </div>
+        </div>
+      `;
+
+      if (studyNotes.length > 0) {
+        html += `<div class="study-block"><h4>📝 Notes d'étude (${studyNotes.length})</h4><div class="study-notes-rich-list">${studyNotes.map((n) => `<div class="study-note-para">${n}</div>`).join("")}</div></div>`;
+      }
+
+      if (crossRefs.length > 0) {
+        const linked = window.DFWolBible.linkifyScripturesInHtml(esc(crossRefs.join(" ; ")), lang);
+        html += `<div class="study-block"><h4>🔗 Renvois</h4><div class="crossrefs-box">${linked}</div></div>`;
+      }
+
+      if (rsgList.length > 0) {
+        html += `<div class="study-block"><h4>🧭 Articles &amp; Guide de recherche (${rsgList.length})</h4><div class="rsg-mini-list">`;
+        rsgList.forEach((art, idx) => {
+          html += `
+            <div class="rsg-mini-card">
+              <button type="button" class="rsg-open-btn" data-open-wol-article="${esc(art.wolUrl)}">
+                <strong>${esc(art.title)}</strong>
+                <span>${esc(art.citation)}</span>
+              </button>
+              <button type="button" class="btn-icon-xs" data-gsp-play-rsg="${idx}" title="Écouter cet article">🎧</button>
+            </div>
+          `;
+        });
+        html += `</div></div>`;
+      }
+
+      if (pubIdxList.length > 0) {
+        html += `<div class="study-block"><h4>🗂️ Index des publications (${pubIdxList.length})</h4><div class="rsg-mini-list">${pubIdxList.map((dx) => `<button type="button" class="rsg-open-btn" data-open-wol-article="${esc(dx.wolUrl)}"><strong>${esc(dx.title)}</strong></button>`).join("")}</div></div>`;
+      }
+
+      html += `<details class="study-block" id="gsp-compare-details"><summary>⚖️ Comparer les versions (TMN, NWT, KJV, Interlinéaire)</summary><div id="gsp-compare-body" style="margin-top:0.5rem;"></div></details>`;
+
+      bodyEl.innerHTML = html;
+      window.DFWolReader.attachInAppLinkInterceptor(bodyEl, lang);
+
+      bodyEl.querySelector("#gsp-open-bible")?.addEventListener("click", () => {
+        closeArticleStudyPane();
+        if (window.DFWolOpenBibleAt) window.DFWolOpenBibleAt(book.num, payload.chapter, verseSpecCompact, lang);
+      });
+      bodyEl.querySelector("#gsp-ai-explain")?.addEventListener("click", () => {
+        window.DFWolAI?.prepareAndOpen({
+          title: label,
+          refsLabel: label,
+          refsText: label,
+          explicitRefs: [refLinkObj],
+          articles: rsgList,
+          lang
+        });
+      });
+      bodyEl.querySelector("#gsp-speak-verse")?.addEventListener("click", () => {
+        window.DFWolAudio?.playTrack({ title: label, subtitle: "Bible d'étude", text: `${label}. ${plainCombined}`, lang, mode: "tts" });
+      });
+      bodyEl.querySelector("#gsp-copy-verse")?.addEventListener("click", () => safeCopyText(`${label}\n${plainCombined}`, `${label} copié !`));
+      bodyEl.querySelector("#gsp-note-verse")?.addEventListener("click", () => {
+        window.DFWolAddNote && window.DFWolAddNote(label, "Étude Perso", plainCombined, { targetType: "bible", docKey: `bible:${book.num}:${payload.chapter}` });
+      });
+      bodyEl.querySelectorAll("[data-gsp-play-rsg]").forEach((b) => {
+        b.addEventListener("click", () => {
+          const item = rsgList[Number(b.getAttribute("data-gsp-play-rsg"))];
+          if (item) window.DFWolAudio?.playTrack({ title: item.title, subtitle: `${label} • ${item.citation}`, wolUrl: item.wolUrl, lang, mode: "auto" });
+        });
+      });
+
+      const cmpDet = bodyEl.querySelector("#gsp-compare-details");
+      cmpDet?.addEventListener("toggle", async () => {
+        const cmpBody = bodyEl.querySelector("#gsp-compare-body");
+        if (!cmpDet.open || !cmpBody || cmpBody.dataset.loaded === "1") return;
+        cmpBody.innerHTML = renderSkeleton("list");
+        try {
+          const rows = await window.DFWolNet.fetchBibleComparison(book.num, payload.chapter, verses, lang);
+          cmpBody.dataset.loaded = "1";
+          cmpBody.innerHTML = rows.length
+            ? rows.map((r) => `<div class="bible-cmp-card"><div class="bible-cmp-head"><strong>${esc(r.label)}</strong></div><p>${esc(r.text)}</p></div>`).join("")
+            : `<p class="card-helper-text">Aucune traduction parallèle disponible.</p>`;
+        } catch (_) {
+          cmpBody.innerHTML = `<p class="card-helper-text">Comparaison indisponible hors-ligne.</p>`;
+        }
+      });
+    } catch (err) {
+      bodyEl.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
     }
   }
 
-  function renderStudyPaneContents(container, art) {
+  function renderUnifiedStudyDrawer() {
+    const panel = document.getElementById("global-study-panel");
+    const titleEl = document.getElementById("gsp-header-title");
+    const backBtn = document.getElementById("gsp-back-btn");
+    const tabsEl = document.getElementById("gsp-tabs-row");
+    const bodyEl = document.getElementById("gsp-body");
+    if (!panel || !bodyEl) return;
+
+    const art = window.DFWolReader?.getCurrentArticleData?.();
+    const refs = art ? window.DFWolBible.parseScriptureReferences(art.plainText || "", art.lang || "fr") : [];
+    const linkedNotes = art && window.DFWolGetNotes ? window.DFWolGetNotes().filter((n) => n.docKey === (art.docId || art.url) || n.title === art.title) : [];
+    const allHl = art ? window.DFWolReader?.getAllHighlights?.().filter((h) => h.docKey === String(art.docId || art.url)) || [] : [];
+
+    if (!currentSidePayload && !art) {
+      sidePanelTab = "actions";
+    } else if (!currentSidePayload && sidePanelTab === "verse") {
+      sidePanelTab = "verses";
+    }
+
+    if (backBtn) backBtn.classList.toggle("hidden", sidePanelStack.length === 0);
+    if (titleEl) {
+      titleEl.textContent = sidePanelTab === "verse" && currentSidePayload
+        ? (currentSidePayload.kind === "footnote" ? "Note & Renvois" : currentSidePayload.kind === "intro" ? "Aperçu du livre" : "Verset & Références")
+        : art?.title || "Étude individuelle";
+    }
+
+    if (tabsEl) {
+      tabsEl.innerHTML = `
+        ${currentSidePayload ? `<button type="button" class="pill-btn ${sidePanelTab === "verse" ? "active" : ""}" data-gsp-tab="verse">Verset / Réf</button>` : ""}
+        ${art ? `<button type="button" class="pill-btn ${sidePanelTab === "verses" ? "active" : ""}" data-gsp-tab="verses">Versets (${refs.length})</button>` : ""}
+        ${art ? `<button type="button" class="pill-btn ${sidePanelTab === "notes" ? "active" : ""}" data-gsp-tab="notes">Notes (${linkedNotes.length + allHl.length})</button>` : ""}
+        <button type="button" class="pill-btn ${sidePanelTab === "actions" ? "active" : ""}" data-gsp-tab="actions">Outils</button>
+      `;
+      tabsEl.querySelectorAll("[data-gsp-tab]").forEach((b) => {
+        b.addEventListener("click", () => {
+          sidePanelTab = b.getAttribute("data-gsp-tab");
+          renderUnifiedStudyDrawer();
+        });
+      });
+    }
+
+    if (sidePanelTab === "verse" && currentSidePayload) {
+      renderSideVerseDetails(bodyEl, currentSidePayload);
+      return;
+    }
+
+    if (sidePanelTab === "notes" && art) {
+      bodyEl.innerHTML = `
+        <div class="asp-section">
+          <button type="button" class="btn-primary btn-xs" id="asp-new-note">➕ Nouvelle note sur cet article</button>
+          <div class="asp-notes-stack" style="margin-top:0.65rem;">
+            ${linkedNotes.length ? linkedNotes.map((n) => `<div class="asp-note-item"><strong>${esc(n.title)}</strong><p>${esc(n.body.slice(0, 260))}</p></div>`).join("") : "<p class='card-helper-text'>Aucune note liée à cet article.</p>"}
+            ${allHl.length ? `<h5 style="margin-top:0.75rem;">Surlignages (${allHl.length})</h5>` + allHl.map((h) => `<div class="asp-hl-item hl-${esc(h.color)}">${esc(h.quote)}</div>`).join("") : ""}
+          </div>
+        </div>
+      `;
+      bodyEl.querySelector("#asp-new-note")?.addEventListener("click", () => {
+        openInputDialog({
+          title: "Nouvelle note",
+          label: "Votre note pour cet article :",
+          placeholder: "Saisissez votre réflexion…",
+          onConfirm: (txt) => {
+            if (window.DFWolAddNote) {
+              window.DFWolAddNote(art.title, "Réunion", txt, { targetType: "article", url: art.url, docKey: art.docId || art.url });
+              renderUnifiedStudyDrawer();
+            }
+          }
+        });
+      });
+      return;
+    }
+
+    if (sidePanelTab === "verses" && art) {
+      renderStudyPaneContents(bodyEl, art, { hideHeader: true });
+      return;
+    }
+
+    // "actions" tab (works everywhere, even outside article)
+    bodyEl.innerHTML = `
+      <div class="asp-section">
+        <div class="btn-group" style="margin-bottom:0.85rem;">
+          ${art ? `<button type="button" class="btn-ai-chip" id="gsp-act-ai">✨ IA 1-clic</button>` : ""}
+          ${art ? `<button type="button" class="btn-primary btn-xs" id="gsp-act-pdf">📄 Exporter PDF</button>` : ""}
+          ${art ? `<button type="button" class="btn-secondary btn-xs" id="gsp-act-media">🎬 Médias</button>` : ""}
+          ${art ? `<button type="button" class="btn-secondary btn-xs" id="gsp-act-offline">💾 Hors-ligne</button>` : ""}
+          ${art ? `<button type="button" class="btn-secondary btn-xs" id="gsp-act-bm">🔖 Marque-page</button>` : ""}
+          ${art ? `<button type="button" class="btn-secondary btn-xs" id="gsp-act-share">🔗 Partager</button>` : ""}
+          <button type="button" class="btn-secondary btn-xs" id="gsp-act-brother">🤝 Spiritual Brother (Local)</button>
+          <button type="button" class="btn-ghost btn-xs" id="gsp-act-history">🕒 Historique</button>
+        </div>
+        <p class="card-helper-text">Touchez n'importe quel verset d'un article pour l'afficher ici avec ses notes d'étude, renvois et articles du Guide de recherche, ou faites un clic droit / appui long sur un paragraphe pour lancer le MP3 officiel à cet endroit.</p>
+      </div>
+    `;
+    bodyEl.querySelector("#gsp-act-ai")?.addEventListener("click", () => {
+      art && window.DFWolAI?.prepareAndOpen({ title: art.title, citation: art.citation, contextText: art.plainText, refsText: art.plainText, lang: art.lang });
+    });
+    bodyEl.querySelector("#gsp-act-pdf")?.addEventListener("click", () => window.DFWolExport?.openPdfExportModal());
+    bodyEl.querySelector("#gsp-act-media")?.addEventListener("click", () => {
+      art && window.DFWolExport?.openMeetingMediaView(document.getElementById("reader-article-body"), art.title, art.lang);
+    });
+    bodyEl.querySelector("#gsp-act-offline")?.addEventListener("click", () => art && window.DFWolLibrary?.saveArticleOffline(art));
+    bodyEl.querySelector("#gsp-act-bm")?.addEventListener("click", (e) => {
+      art && openBookmarkPopover(e.currentTarget, { type: "article", title: art.title, subtitle: art.citation, url: art.url, lang: art.lang });
+    });
+    bodyEl.querySelector("#gsp-act-share")?.addEventListener("click", () => {
+      art && shareDeepLink({ title: art.title, params: { tab: "meetings", article: art.docId || art.url } });
+    });
+    bodyEl.querySelector("#gsp-act-brother")?.addEventListener("click", () => {
+      closeArticleStudyPane();
+      window.DFWolSwitchTab && window.DFWolSwitchTab("study", { studySubtab: "brother" });
+    });
+    bodyEl.querySelector("#gsp-act-history")?.addEventListener("click", () => openHistoryDrawer());
+  }
+
+  async function openStudySidePanel(payload, opts = {}) {
+    if (!opts.fromBack && !opts.skipPush && currentSidePayload && !document.getElementById("global-study-panel")?.classList.contains("hidden")) {
+      sidePanelStack.push(currentSidePayload);
+      if (sidePanelStack.length > 20) sidePanelStack.shift();
+    } else if (!opts.fromBack && !opts.skipPush) {
+      sidePanelStack.length = 0;
+    }
+    currentSidePayload = payload;
+    sidePanelTab = "verse";
+    showGlobalStudyPanelDrawer();
+    renderUnifiedStudyDrawer();
+  }
+
+  function openArticleStudyPane(tabName = null) {
+    const art = window.DFWolReader?.getCurrentArticleData?.();
+    if (tabName) {
+      activeArticlePaneTab = tabName;
+      sidePanelTab = tabName;
+    } else if (art && (!currentSidePayload || sidePanelTab === "verse")) {
+      sidePanelTab = "verses";
+    } else if (!art && !currentSidePayload) {
+      sidePanelTab = "actions";
+    }
+    showGlobalStudyPanelDrawer();
+    renderUnifiedStudyDrawer();
+  }
+
+  function refreshArticleStudyPane(parsed) {
+    const panel = document.getElementById("global-study-panel");
+    if (panel && !panel.classList.contains("hidden") && parsed) {
+      renderUnifiedStudyDrawer();
+    }
+  }
+
+  function renderStudyPaneContents(container, art, opts = {}) {
     const refs = window.DFWolBible.parseScriptureReferences(art.plainText || "", art.lang || "fr");
     const linkedNotes = window.DFWolGetNotes ? window.DFWolGetNotes().filter((n) => n.docKey === (art.docId || art.url) || n.title === art.title) : [];
     const allHl = window.DFWolReader?.getAllHighlights?.().filter((h) => h.docKey === String(art.docId || art.url)) || [];
 
-    const tabsHtml = `
+    const tabsHtml = opts.hideHeader
+      ? ""
+      : `
       <div class="asp-header">
         <div class="asp-tabs" role="tablist">
           <button type="button" class="pill-btn ${activeArticlePaneTab === "verses" ? "active" : ""}" data-asp-tab="verses">📖 Versets (${refs.length})</button>
@@ -1356,6 +1690,15 @@ window.DFWolStudy = (function () {
 
     bindContextMenus();
     initHoverPreviews();
+
+    document.getElementById("global-study-panel-close")?.addEventListener("click", closeArticleStudyPane);
+    document.getElementById("global-study-panel-backdrop")?.addEventListener("click", closeArticleStudyPane);
+    document.getElementById("gsp-back-btn")?.addEventListener("click", () => {
+      if (sidePanelStack.length > 0) {
+        const prev = sidePanelStack.pop();
+        openStudySidePanel(prev, { fromBack: true });
+      }
+    });
 
     document.getElementById("dfwol-input-modal-close")?.addEventListener("click", () => {
       pendingInputCallback = null;
@@ -1743,6 +2086,8 @@ window.DFWolStudy = (function () {
     openFindBar,
     closeFindBar,
     isFindOpen: () => findActive,
+    openStudySidePanel,
+    toggleStudySidePanel,
     openArticleStudyPane,
     closeArticleStudyPane,
     refreshArticleStudyPane,
