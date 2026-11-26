@@ -660,7 +660,7 @@ window.DFWolStudy = (function () {
         document.removeEventListener("click", dismiss, true);
       }
     };
-    setTimeout(() => document.addEventListener("click", dismiss, true), 10);
+    setTimeout(() => document.addEventListener("click", dismiss, true), 40);
   }
 
   function buildBibleVerseContextItems(verseRow) {
@@ -714,7 +714,9 @@ window.DFWolStudy = (function () {
       }
     }
 
-    const artPara = target.closest("#reader-article-body p, #reader-article-body li");
+    const artPara =
+      target.closest("#reader-article-body p, #reader-article-body li, #reader-article-body h1, #reader-article-body h2, #reader-article-body h3, #reader-article-body h4, #reader-article-body blockquote, #reader-article-body figcaption") ||
+      target.closest("#reader-article-body");
     if (artPara && !target.closest(".gen-field, #materialNav, #todayNav")) {
       const art = window.DFWolReader?.getCurrentArticleData?.();
       const pTxt = cleanStr(artPara.textContent || "");
@@ -795,7 +797,9 @@ window.DFWolStudy = (function () {
       if (e.target.closest("input, textarea, .gen-field")) return;
       if (e.target.closest("#reader-article-body, #bible-reader-body")) {
         const isTouchCtx =
+          Boolean(document.querySelector(".is-hl-dragging")) ||
           e.pointerType === "touch" ||
+          Boolean(e.sourceCapabilities?.firesTouchEvents) ||
           (window.matchMedia?.("(pointer: coarse)")?.matches && e.button !== 2);
         if (isTouchCtx) {
           e.preventDefault();

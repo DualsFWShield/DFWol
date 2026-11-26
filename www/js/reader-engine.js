@@ -583,6 +583,7 @@ window.DFWolReader = (function () {
 
   function hideSelectionToolbar() {
     document.getElementById("text-selection-toolbar")?.classList.add("hidden");
+    document.body.classList.remove("has-hl-toolbar");
     activeSelectionRange = null;
     activeSelectionText = "";
     activeSelectionPid = "";
@@ -641,6 +642,7 @@ window.DFWolReader = (function () {
     activeHighlightDocUrl = ctx.docUrl;
 
     const rect = markEl.getBoundingClientRect();
+    document.body.classList.add("has-hl-toolbar");
     toolbar.classList.remove("hidden");
     const tbRect = toolbar.getBoundingClientRect();
     const left = Math.max(12, Math.min(window.innerWidth - tbRect.width - 12, rect.left + rect.width / 2 - tbRect.width / 2));
@@ -2284,65 +2286,133 @@ window.DFWolReader = (function () {
       return list;
     };
 
+    const pointToRectDist = (rc, cx, cy) => {
+      const dx = cx < rc.left ? rc.left - cx : cx > rc.right ? cx - rc.right : 0;
+      const dy = cy < rc.top ? rc.top - cy : cy > rc.bottom ? cy - rc.bottom : 0;
+      return dx * dx + dy * dy * 16;
+    };
+
+    const getCharRectInNode = (tn, idx) => {
+      const r = document.createRange();
+      r.setStart(tn, idx);
+      r.setEnd(tn, idx + 1);
+      return r.getBoundingClientRect();
+    };
+
     const getCharOffsetFromPoint = (container, clientX, clientY) => {
-      let node = null;
-      let offset = 0;
-      if (typeof document.caretRangeFromPoint === "function") {
-        const cr = document.caretRangeFromPoint(clientX, clientY);
-        if (cr) {
-          node = cr.startContainer;
-          offset = cr.startOffset;
-        }
-      } else if (typeof document.caretPositionFromPoint === "function") {
-        const cp = document.caretPositionFromPoint(clientX, clientY);
-        if (cp) {
-          node = cp.offsetNode;
-          offset = cp.offset;
-        }
+      const allNodes = getValidTextNodes(container);
+      if (!allNodes.length) return null;
+
+      let candNodes = [];
+      if (typeof document.elementsFromPoint === "function") {
+        const els = document.elementsFromPoint(clientX, clientY) || [];
+        const block = els.find(
+          (el) =>
+            container.contains(el) &&
+            el.matches?.("p, li, h1, h2, h3, h4, blockquote, .bible-verse-row, td, dd, figcaption")
+        );
+        if (block) candNodes = getValidTextNodes(block);
       }
-
-      const nodes = getValidTextNodes(container);
-      if (!nodes.length) return null;
-
-      if (node && node.nodeType === Node.ELEMENT_NODE && container.contains(node)) {
-        const inner = getValidTextNodes(node);
-        if (inner.length) {
-          node = inner[0];
-          offset = 0;
-        }
+      if (!candNodes.length) {
+        const probeR = document.createRange();
+        candNodes = allNodes.filter((tn) => {
+          probeR.selectNodeContents(tn);
+          const br = probeR.getBoundingClientRect();
+          return br.height > 0 && br.bottom >= clientY - 90 && br.top <= clientY + 90;
+        });
       }
+      if (!candNodes.length) candNodes = allNodes;
 
-      let targetNode = nodes.includes(node) ? node : null;
-      if (!targetNode) {
-        let bestDist = Infinity;
-        for (const tn of nodes) {
-          const r = document.createRange();
-          r.selectNodeContents(tn);
-          const rect = r.getBoundingClientRect();
-          if (rect.width === 0 && rect.height === 0) continue;
-          const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
-          const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
-          const d = dx * dx + dy * dy * 4;
+      let targetNode = null;
+      let bestDist = Infinity;
+      const nodeRange = document.createRange();
+      for (const tn of candNodes) {
+        nodeRange.selectNodeContents(tn);
+        const rects = nodeRange.getClientRects();
+        for (let i = 0; i < rects.length; i++) {
+          const rc = rects[i];
+          if (rc.width === 0 && rc.height === 0) continue;
+          const d = pointToRectDist(rc, clientX, clientY);
           if (d < bestDist) {
             bestDist = d;
             targetNode = tn;
-            offset = clientX <= rect.left ? 0 : clientX >= rect.right ? tn.nodeValue.length : Math.floor(tn.nodeValue.length / 2);
+            if (d === 0) break;
           }
         }
+        if (bestDist === 0) break;
       }
       if (!targetNode) return null;
 
       const txt = targetNode.nodeValue;
+      const len = txt.length;
+      let bestIdx = 0;
+      if (len > 1) {
+        let lo = 0;
+        let hi = len - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          let probeIdx = mid;
+          let rc = getCharRectInNode(targetNode, probeIdx);
+          if (rc.width === 0 && rc.height === 0) {
+            let found = -1;
+            for (let step = 1; step <= 6; step++) {
+              if (mid + step <= hi) {
+                const rr = getCharRectInNode(targetNode, mid + step);
+                if (rr.width > 0 || rr.height > 0) {
+                  found = mid + step;
+                  rc = rr;
+                  break;
+                }
+              }
+              if (mid - step >= lo) {
+                const rl = getCharRectInNode(targetNode, mid - step);
+                if (rl.width > 0 || rl.height > 0) {
+                  found = mid - step;
+                  rc = rl;
+                  break;
+                }
+              }
+            }
+            if (found === -1) break;
+            probeIdx = found;
+          }
+          if (clientY >= rc.bottom - 1) {
+            lo = probeIdx + 1;
+          } else if (clientY < rc.top + 1) {
+            hi = probeIdx - 1;
+          } else if (clientX > rc.right) {
+            lo = probeIdx + 1;
+          } else if (clientX < rc.left) {
+            hi = probeIdx - 1;
+          } else {
+            bestIdx = probeIdx;
+            lo = probeIdx;
+            break;
+          }
+        }
+        const centerIdx = Math.max(0, Math.min(len - 1, lo));
+        let charBestDist = Infinity;
+        for (let i = Math.max(0, centerIdx - 3); i <= Math.min(len - 1, centerIdx + 3); i++) {
+          const rc = getCharRectInNode(targetNode, i);
+          if (rc.width === 0 && rc.height === 0) continue;
+          const d = pointToRectDist(rc, clientX, clientY);
+          if (d < charBestDist) {
+            charBestDist = d;
+            bestIdx = i;
+          }
+        }
+      }
+
       const wordRe = /[\p{L}\p{N}'’_-]/u;
-      let s = Math.min(Math.max(0, offset), txt.length);
-      let e = s;
+      let s = Math.min(Math.max(0, bestIdx), len);
       if (s > 0 && !wordRe.test(txt[s] || "") && wordRe.test(txt[s - 1])) s--;
+      let e = s;
       while (s > 0 && wordRe.test(txt[s - 1])) s--;
-      while (e < txt.length && wordRe.test(txt[e])) e++;
-      if (e === s && txt.length > 0) e = Math.min(txt.length, s + 1);
+      while (e < len && wordRe.test(txt[e])) e++;
+      if (e === s && len > 0) e = Math.min(len, s + 1);
 
       let acc = 0;
-      for (const tn of nodes) {
+      for (const tn of allNodes) {
         if (tn === targetNode) {
           return { wordStart: acc + s, wordEnd: acc + e };
         }
@@ -2392,72 +2462,72 @@ window.DFWolReader = (function () {
         } catch (_) {}
       });
 
-      return cleanStr(parts.join(" "));
+      return cleanStr(parts.join(""));
     };
 
     const bindContainerHighlightGesture = (container) => {
       let holdTimer = null;
       let isDraggingHl = false;
-      let activePid = null;
+      let activeTouchId = null;
+      let activeMousePid = null;
       let anchorWord = null;
       let currentSpan = null;
       let downX = 0;
       let downY = 0;
+      let autoScrollTimer = null;
+      let lastDragX = 0;
+      let lastDragY = 0;
 
-      const cancelDragState = () => {
+      const stopAutoScroll = () => {
+        if (autoScrollTimer) {
+          clearInterval(autoScrollTimer);
+          autoScrollTimer = null;
+        }
+      };
+
+      const cancelHoldAndDrag = () => {
         if (holdTimer) {
           clearTimeout(holdTimer);
           holdTimer = null;
         }
+        stopAutoScroll();
         container.classList.remove("is-hl-dragging");
       };
 
-      container.addEventListener("pointerdown", (e) => {
-        if (e.pointerType === "mouse" && e.button !== 0) return;
-        if (e.target.closest("a, button, input, textarea, select, .gen-field, mark.jw-hl")) return;
-        if (!resolveSelectionContext(e.target)) return;
+      const updateDragAt = (cx, cy) => {
+        lastDragX = cx;
+        lastDragY = cy;
+        if (!anchorWord) return;
 
-        downX = e.clientX;
-        downY = e.clientY;
-        activePid = e.pointerId;
-        isDraggingHl = false;
-        anchorWord = null;
-        currentSpan = null;
-
-        holdTimer = setTimeout(() => {
-          holdTimer = null;
-          const wordSpan = getCharOffsetFromPoint(container, downX, downY);
-          if (!wordSpan) return;
-          isDraggingHl = true;
-          anchorWord = wordSpan;
-          currentSpan = { start: wordSpan.wordStart, end: wordSpan.wordEnd };
-          container.classList.add("is-hl-dragging");
-          try {
-            window.getSelection()?.removeAllRanges();
-          } catch (_) {}
-          try {
-            container.setPointerCapture?.(activePid);
-          } catch (_) {}
-          if (typeof navigator.vibrate === "function") {
-            try { navigator.vibrate(15); } catch (_) {}
+        if (cy < 75 || cy > window.innerHeight - 95) {
+          if (!autoScrollTimer) {
+            autoScrollTimer = setInterval(() => {
+              if (!isDraggingHl) {
+                stopAutoScroll();
+                return;
+              }
+              const step = lastDragY < 75 ? -7 : lastDragY > window.innerHeight - 95 ? 7 : 0;
+              if (step !== 0) {
+                window.scrollBy(0, step);
+                const curAfterScroll = getCharOffsetFromPoint(container, lastDragX, lastDragY);
+                if (curAfterScroll && anchorWord) {
+                  const s2 = Math.min(anchorWord.wordStart, curAfterScroll.wordStart);
+                  const e2 = Math.max(anchorWord.wordEnd, curAfterScroll.wordEnd);
+                  if (!currentSpan || currentSpan.start !== s2 || currentSpan.end !== e2) {
+                    currentSpan = { start: s2, end: e2 };
+                    clearLiveMarks(container);
+                    extractSpanTextAndPaint(container, s2, e2, lastHlColor, true);
+                  }
+                }
+              }
+            }, 35);
           }
-          clearLiveMarks(container);
-          extractSpanTextAndPaint(container, currentSpan.start, currentSpan.end, lastHlColor, true);
-        }, 280);
-      });
-
-      container.addEventListener("pointermove", (e) => {
-        if (!isDraggingHl) {
-          if (holdTimer && (Math.abs(e.clientX - downX) > 10 || Math.abs(e.clientY - downY) > 10)) {
-            clearTimeout(holdTimer);
-            holdTimer = null;
-          }
-          return;
+        } else {
+          stopAutoScroll();
         }
-        if (e.pointerId !== activePid) return;
-        e.preventDefault();
-        const curWord = getCharOffsetFromPoint(container, e.clientX, e.clientY);
-        if (!curWord || !anchorWord) return;
+
+        const curWord = getCharOffsetFromPoint(container, cx, cy);
+        if (!curWord) return;
         const start = Math.min(anchorWord.wordStart, curWord.wordStart);
         const end = Math.max(anchorWord.wordEnd, curWord.wordEnd);
         if (!currentSpan || currentSpan.start !== start || currentSpan.end !== end) {
@@ -2465,18 +2535,45 @@ window.DFWolReader = (function () {
           clearLiveMarks(container);
           extractSpanTextAndPaint(container, start, end, lastHlColor, true);
         }
-      });
+      };
+
+      const startHoldAt = (cx, cy) => {
+        downX = cx;
+        downY = cy;
+        isDraggingHl = false;
+        anchorWord = null;
+        currentSpan = null;
+        if (holdTimer) clearTimeout(holdTimer);
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          const wordSpan = getCharOffsetFromPoint(container, downX, downY);
+          if (!wordSpan) {
+            activeTouchId = null;
+            activeMousePid = null;
+            return;
+          }
+          isDraggingHl = true;
+          anchorWord = wordSpan;
+          currentSpan = { start: wordSpan.wordStart, end: wordSpan.wordEnd };
+          container.classList.add("is-hl-dragging");
+          try {
+            window.getSelection()?.removeAllRanges();
+          } catch (_) {}
+          if (typeof navigator.vibrate === "function") {
+            try { navigator.vibrate(15); } catch (_) {}
+          }
+          clearLiveMarks(container);
+          extractSpanTextAndPaint(container, currentSpan.start, currentSpan.end, lastHlColor, true);
+        }, 220);
+      };
 
       const finishGesture = () => {
-        cancelDragState();
+        cancelHoldAndDrag();
         if (!isDraggingHl) return;
         isDraggingHl = false;
         const finalSpan = currentSpan;
         currentSpan = null;
         anchorWord = null;
-        try {
-          container.releasePointerCapture?.(activePid);
-        } catch (_) {}
 
         clearLiveMarks(container);
         if (!finalSpan || finalSpan.end <= finalSpan.start) return;
@@ -2506,8 +2603,85 @@ window.DFWolReader = (function () {
         } catch (_) {}
       };
 
-      container.addEventListener("pointerup", finishGesture);
-      container.addEventListener("pointercancel", finishGesture);
+      // Tactile mobile : Touch Events directs (permet e.preventDefault() pendant touchmove pour stopper le scroll Android)
+      container.addEventListener(
+        "touchstart",
+        (e) => {
+          if (e.touches.length !== 1) {
+            if (holdTimer) {
+              clearTimeout(holdTimer);
+              holdTimer = null;
+            }
+            return;
+          }
+          if (e.target.closest("a, button, input, textarea, select, .gen-field, mark.jw-hl")) return;
+          if (!resolveSelectionContext(e.target)) return;
+          const t = e.touches[0];
+          activeTouchId = t.identifier;
+          startHoldAt(t.clientX, t.clientY);
+        },
+        { passive: true }
+      );
+
+      window.addEventListener(
+        "touchmove",
+        (e) => {
+          if (activeTouchId === null) return;
+          const t = Array.from(e.touches).find((x) => x.identifier === activeTouchId);
+          if (!t) return;
+          if (!isDraggingHl) {
+            if (Math.hypot(t.clientX - downX, t.clientY - downY) > 14) {
+              cancelHoldAndDrag();
+              activeTouchId = null;
+            }
+            return;
+          }
+          e.preventDefault();
+          updateDragAt(t.clientX, t.clientY);
+        },
+        { passive: false }
+      );
+
+      const handleTouchEnd = (e) => {
+        if (activeTouchId === null) return;
+        const ended = Array.from(e.changedTouches || []).some((x) => x.identifier === activeTouchId);
+        if (!ended) return;
+        activeTouchId = null;
+        finishGesture();
+      };
+      window.addEventListener("touchend", handleTouchEnd, { passive: true });
+      window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+
+      // Souris / stylet Desktop uniquement (ignore e.pointerType === "touch" géré ci-dessus)
+      container.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "touch") return;
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        if (e.target.closest("a, button, input, textarea, select, .gen-field, mark.jw-hl")) return;
+        if (!resolveSelectionContext(e.target)) return;
+        activeMousePid = e.pointerId;
+        startHoldAt(e.clientX, e.clientY);
+      });
+
+      window.addEventListener("pointermove", (e) => {
+        if (e.pointerType === "touch" || e.pointerId !== activeMousePid) return;
+        if (!isDraggingHl) {
+          if (holdTimer && Math.hypot(e.clientX - downX, e.clientY - downY) > 10) {
+            cancelHoldAndDrag();
+            activeMousePid = null;
+          }
+          return;
+        }
+        e.preventDefault();
+        updateDragAt(e.clientX, e.clientY);
+      });
+
+      const handleMouseUp = (e) => {
+        if (e.pointerType === "touch" || e.pointerId !== activeMousePid) return;
+        activeMousePid = null;
+        finishGesture();
+      };
+      window.addEventListener("pointerup", handleMouseUp);
+      window.addEventListener("pointercancel", handleMouseUp);
 
       container.addEventListener("click", (e) => {
         if (Date.now() - justFinishedHlAt < 90) return;
@@ -2533,14 +2707,13 @@ window.DFWolReader = (function () {
 
     const selTb = document.getElementById("text-selection-toolbar");
     if (selTb) {
-      selTb.querySelectorAll("button").forEach((b) => {
-        b.addEventListener("pointerdown", (e) => e.preventDefault());
-        b.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
-      });
+      selTb.addEventListener("pointerdown", (e) => e.stopPropagation());
+      selTb.addEventListener("touchstart", (e) => e.stopPropagation(), { passive: true });
 
       selTb.querySelectorAll("[data-hl-color]").forEach((btn) => {
         btn.addEventListener("click", (e) => {
           e.preventDefault();
+          e.stopPropagation();
           const color = btn.getAttribute("data-hl-color");
           lastHlColor = color;
           try {
@@ -2561,7 +2734,8 @@ window.DFWolReader = (function () {
         });
       });
 
-      document.getElementById("sel-btn-remove-hl")?.addEventListener("click", () => {
+      document.getElementById("sel-btn-remove-hl")?.addEventListener("click", (e) => {
+        e.stopPropagation();
         if (activeHighlightMarkId) {
           removeHighlightById(activeHighlightMarkId);
           window.DFWolRenderHighlights && window.DFWolRenderHighlights();
@@ -2570,11 +2744,13 @@ window.DFWolReader = (function () {
         hideSelectionToolbar();
       });
 
-      document.getElementById("sel-btn-close")?.addEventListener("click", () => {
+      document.getElementById("sel-btn-close")?.addEventListener("click", (e) => {
+        e.stopPropagation();
         hideSelectionToolbar();
       });
 
-      document.getElementById("sel-btn-note")?.addEventListener("click", () => {
+      document.getElementById("sel-btn-note")?.addEventListener("click", (e) => {
+        e.stopPropagation();
         const selText = activeSelectionText;
         if (selText && window.DFWolAddNote) {
           window.DFWolAddNote(activeHighlightDocTitle || "Extrait d'étude", activeHighlightDocKey?.startsWith("bible:") ? "Étude Perso" : "Réunion", selText, {
@@ -2585,7 +2761,8 @@ window.DFWolReader = (function () {
         hideSelectionToolbar();
       });
 
-      document.getElementById("sel-btn-copy")?.addEventListener("click", () => {
+      document.getElementById("sel-btn-copy")?.addEventListener("click", (e) => {
+        e.stopPropagation();
         const selText = activeSelectionText;
         if (selText && window.DFWolStudy) {
           window.DFWolStudy.safeCopyText(selText, "Extrait copié !");
@@ -2593,7 +2770,8 @@ window.DFWolReader = (function () {
         hideSelectionToolbar();
       });
 
-      document.getElementById("sel-btn-more")?.addEventListener("click", () => {
+      document.getElementById("sel-btn-more")?.addEventListener("click", (e) => {
+        e.stopPropagation();
         const markTarget =
           activeHighlightMarkEl ||
           (activeHighlightMarkId ? document.querySelector(`mark.jw-hl[data-hl-id="${activeHighlightMarkId}"]`) : null);

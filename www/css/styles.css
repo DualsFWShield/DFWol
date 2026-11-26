@@ -2161,7 +2161,7 @@ body.has-audio-bar .jwl-gem-fab { bottom: 5.5rem; }
 /* Barre flottante de surlignage (Capture 6) & Menu contextuel ⋮ */
 .text-selection-toolbar {
   position: fixed;
-  z-index: 115;
+  z-index: 150;
   display: flex;
   align-items: center;
   gap: 0.32rem;
@@ -3706,6 +3706,11 @@ button:not(:disabled):active,
   }
   body.has-audio-bar .jwl-gem-fab {
     bottom: calc(134px + env(safe-area-inset-bottom));
+  }
+  body.has-hl-toolbar .jwl-gem-fab {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
   }
   .text-selection-toolbar {
     bottom: calc(64px + env(safe-area-inset-bottom)) !important;
