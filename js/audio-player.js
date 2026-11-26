@@ -73,6 +73,75 @@ window.DFWolAudio = (function () {
   let piperQueue = Promise.resolve();
   let uiBound = false;
 
+  const sleepState = {
+    mode: null, // null | 'end' | 'timer'
+    endAt: 0,
+    intervalId: null
+  };
+
+  function clearSleepTimer() {
+    if (sleepState.intervalId) {
+      clearInterval(sleepState.intervalId);
+      sleepState.intervalId = null;
+    }
+    sleepState.mode = null;
+    sleepState.endAt = 0;
+    updateSleepBadge();
+  }
+
+  function updateSleepBadge() {
+    const btn = document.getElementById("audio-btn-sleep");
+    const lbl = document.getElementById("audio-sleep-label");
+    if (!btn) return;
+    const isActive = Boolean(sleepState.mode);
+    btn.classList.toggle("is-active", isActive);
+    btn.setAttribute("aria-pressed", String(isActive));
+    if (!lbl) return;
+    if (!sleepState.mode) {
+      lbl.textContent = "Min.";
+    } else if (sleepState.mode === "end") {
+      lbl.textContent = "Fin";
+    } else {
+      const remSec = Math.max(0, Math.ceil((sleepState.endAt - Date.now()) / 1000));
+      const m = Math.floor(remSec / 60);
+      const s = remSec % 60;
+      lbl.textContent = `${m}:${String(s).padStart(2, "0")}`;
+    }
+  }
+
+  function setSleepTimer(minutesOrMode) {
+    clearSleepTimer();
+    if (!minutesOrMode || minutesOrMode === "off" || minutesOrMode === 0) {
+      window.DFWolToast && window.DFWolToast("Minuteur de sommeil désactivé.");
+      return getSleepTimerState();
+    }
+    if (minutesOrMode === "end") {
+      sleepState.mode = "end";
+      updateSleepBadge();
+      window.DFWolToast && window.DFWolToast("Lecture s'arrêtera à la fin de la piste.");
+      return getSleepTimerState();
+    }
+    const mins = Math.max(1, Number(minutesOrMode) || 15);
+    sleepState.mode = "timer";
+    sleepState.endAt = Date.now() + mins * 60000;
+    updateSleepBadge();
+    sleepState.intervalId = setInterval(() => {
+      if (Date.now() >= sleepState.endAt) {
+        clearSleepTimer();
+        if (state.isPlaying) togglePlayPause();
+        window.DFWolToast && window.DFWolToast("Minuteur de sommeil écoulé — lecture mise en pause.");
+      } else {
+        updateSleepBadge();
+      }
+    }, 1000);
+    window.DFWolToast && window.DFWolToast(`Minuteur de sommeil activé (${mins} min).`);
+    return getSleepTimerState();
+  }
+
+  function getSleepTimerState() {
+    return Object.assign({}, sleepState);
+  }
+
   function isNativeCap() {
     return Boolean(window.DFWolNet && window.DFWolNet.isNativeCapacitor && window.DFWolNet.isNativeCapacitor());
   }
@@ -367,7 +436,10 @@ window.DFWolAudio = (function () {
   async function synthesizeViaPiper(text, piperVoiceId) {
     if (!piperModulePromise) {
       window.DFWolToast && window.DFWolToast("Chargement du modèle vocal IA local (première utilisation)…");
-      piperModulePromise = import("https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web/+esm");
+      piperModulePromise = import("https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web/+esm").catch((err) => {
+        piperModulePromise = null;
+        throw err;
+      });
     }
     const runTask = async () => {
       const tts = await piperModulePromise;
@@ -861,6 +933,12 @@ window.DFWolAudio = (function () {
   }
 
   function playNextInQueue() {
+    if (sleepState.mode === "end") {
+      clearSleepTimer();
+      stopAll();
+      window.DFWolToast && window.DFWolToast("Minuteur « Fin de piste » terminé.");
+      return;
+    }
     if (state.currentIndex + 1 < state.queue.length) {
       state.currentIndex++;
       renderQueueList();
@@ -868,6 +946,21 @@ window.DFWolAudio = (function () {
     } else {
       stopAll();
     }
+  }
+
+  function playFromParagraph(pid, articleData = null) {
+    const art = articleData || (window.DFWolReader && window.DFWolReader.getCurrentArticleData && window.DFWolReader.getCurrentArticleData());
+    if (!art || !Array.isArray(art.paragraphs) || !art.paragraphs.length) return false;
+    const startIdx = art.paragraphs.findIndex((p) => String(p.pid) === String(pid));
+    const slice = startIdx >= 0 ? art.paragraphs.slice(startIdx) : art.paragraphs;
+    playTrack({
+      title: art.title || "Lecture vocale",
+      subtitle: startIdx > 0 ? `À partir du § ${startIdx + 1}` : art.citation || "Article WOL",
+      paragraphs: slice,
+      lang: art.lang || "fr",
+      mode: "tts"
+    });
+    return true;
   }
 
   function playPrevInQueue() {
@@ -996,6 +1089,31 @@ window.DFWolAudio = (function () {
     if (sEl) sEl.textContent = subtitle || "";
   }
 
+  function updateTimeProgressOnly() {
+    const progressEl = document.getElementById("audio-progress-range");
+    const timeEl = document.getElementById("audio-time-label");
+    if (state.activeEngine === "mp3") {
+      const dur = htmlAudio.duration || 0;
+      const curT = htmlAudio.currentTime || 0;
+      if (progressEl) {
+        progressEl.max = dur > 0 ? Math.floor(dur) : 100;
+        progressEl.value = dur > 0 ? Math.floor(curT) : 0;
+        const pct = dur > 0 ? Math.min(100, Math.round((curT / dur) * 100)) : 0;
+        progressEl.style.setProperty("--progress-pct", `${pct}%`);
+      }
+      if (timeEl) timeEl.textContent = `${formatTime(curT)} / ${formatTime(dur)}`;
+    } else if (isTtsMode()) {
+      const total = Math.max(1, state.ttsChunks.length);
+      if (progressEl) {
+        progressEl.max = Math.max(0, total - 1);
+        progressEl.value = state.ttsChunkIndex;
+        const pct = total > 1 ? Math.round((state.ttsChunkIndex / (total - 1)) * 100) : state.isBuffering ? 0 : 100;
+        progressEl.style.setProperty("--progress-pct", `${pct}%`);
+      }
+      if (timeEl) timeEl.textContent = `${state.ttsChunkIndex + 1}/${total}`;
+    }
+  }
+
   function updatePlayerUI() {
     const cur = state.queue[state.currentIndex];
     const titleEl = document.getElementById("audio-bar-title");
@@ -1004,8 +1122,6 @@ window.DFWolAudio = (function () {
     const rateBtn = document.getElementById("audio-btn-rate");
     const badgeEl = document.getElementById("audio-engine-badge");
     const queueCountEl = document.getElementById("audio-queue-count");
-    const progressEl = document.getElementById("audio-progress-range");
-    const timeEl = document.getElementById("audio-time-label");
     const dlBtn = document.getElementById("audio-btn-download");
 
     if (dlBtn) {
@@ -1032,27 +1148,8 @@ window.DFWolAudio = (function () {
     if (badgeEl) badgeEl.textContent = state.isBuffering && isTtsMode() ? "⏳" : engineNames[state.activeEngine] || "Prêt";
     if (queueCountEl) queueCountEl.textContent = String(state.queue.length);
 
-    if (state.activeEngine === "mp3") {
-      const dur = htmlAudio.duration || 0;
-      const curT = htmlAudio.currentTime || 0;
-      if (progressEl) {
-        progressEl.max = dur > 0 ? Math.floor(dur) : 100;
-        progressEl.value = dur > 0 ? Math.floor(curT) : 0;
-        const pct = dur > 0 ? Math.min(100, Math.round((curT / dur) * 100)) : 0;
-        progressEl.style.setProperty("--progress-pct", `${pct}%`);
-      }
-      if (timeEl) timeEl.textContent = `${formatTime(curT)} / ${formatTime(dur)}`;
-    } else if (isTtsMode()) {
-      const total = Math.max(1, state.ttsChunks.length);
-      if (progressEl) {
-        progressEl.max = total - 1;
-        progressEl.value = state.ttsChunkIndex;
-        const pct = total > 1 ? Math.round((state.ttsChunkIndex / (total - 1)) * 100) : 100;
-        progressEl.style.setProperty("--progress-pct", `${pct}%`);
-      }
-      if (timeEl) timeEl.textContent = `${state.ttsChunkIndex + 1}/${total}`;
-    }
-
+    updateTimeProgressOnly();
+    updateSleepBadge();
     renderQueueList();
   }
 
@@ -1104,7 +1201,7 @@ window.DFWolAudio = (function () {
     populateVoiceSelector(window.DFWolGetLang ? window.DFWolGetLang() : "fr");
 
     htmlAudio.addEventListener("timeupdate", () => {
-      if (state.activeEngine === "mp3") updatePlayerUI();
+      if (state.activeEngine === "mp3") updateTimeProgressOnly();
     });
     htmlAudio.addEventListener("ended", () => {
       if (state.activeEngine === "mp3") {
@@ -1167,16 +1264,41 @@ window.DFWolAudio = (function () {
       renderQueueList();
     });
 
-    document.getElementById("audio-progress-range")?.addEventListener("input", (e) => {
+    const progRange = document.getElementById("audio-progress-range");
+    progRange?.addEventListener("input", (e) => {
       const val = Number(e.target.value);
       if (state.activeEngine === "mp3") {
         htmlAudio.currentTime = val;
       } else if (isTtsMode()) {
-        stopTtsInternal();
-        stopMp3Internal();
-        state.ttsStopRequested = false;
-        state.ttsSessionId++;
-        speakChunkAt(val);
+        const total = Math.max(1, state.ttsChunks.length);
+        const pct = total > 1 ? Math.round((val / (total - 1)) * 100) : 0;
+        progRange.style.setProperty("--progress-pct", `${pct}%`);
+      }
+    });
+    progRange?.addEventListener("change", (e) => {
+      if (!isTtsMode()) return;
+      const val = Number(e.target.value);
+      stopTtsInternal();
+      stopMp3Internal();
+      state.ttsStopRequested = false;
+      state.ttsSessionId++;
+      speakChunkAt(val);
+    });
+
+    document.getElementById("audio-btn-sleep")?.addEventListener("click", (e) => {
+      if (window.DFWolStudy && typeof window.DFWolStudy.openContextMenu === "function") {
+        const rect = e.currentTarget.getBoundingClientRect();
+        window.DFWolStudy.openContextMenu(rect.left, rect.top - 10, [
+          { label: "🌙 15 minutes", onClick: () => setSleepTimer(15) },
+          { label: "🌙 30 minutes", onClick: () => setSleepTimer(30) },
+          { label: "🌙 45 minutes", onClick: () => setSleepTimer(45) },
+          { label: "🌙 60 minutes", onClick: () => setSleepTimer(60) },
+          { label: "⏭️ Fin de la piste", onClick: () => setSleepTimer("end") },
+          { label: "✕ Désactiver le minuteur", onClick: () => setSleepTimer(0) }
+        ], { anchorTop: true });
+      } else {
+        const nextMins = sleepState.mode === "timer" ? 0 : 30;
+        setSleepTimer(nextMins);
       }
     });
 
@@ -1217,6 +1339,9 @@ window.DFWolAudio = (function () {
     formatScripturesForSpeech,
     buildTtsChunks,
     prewarmText,
+    playFromParagraph,
+    setSleepTimer,
+    getSleepTimerState,
     getSkipRefsEnabled,
     setSkipRefsEnabled,
     getSelectedVoice,

@@ -123,6 +123,7 @@ window.DFWolVideo = (function () {
 
   let loadedCategoriesLang = null;
   let cachedCategories = [];
+  let lastActiveCueIdx = -1;
 
   async function ensureLoadedForLang(lang = "fr") {
     if (loadedCategoriesLang !== lang) {
@@ -133,12 +134,12 @@ window.DFWolVideo = (function () {
   function showVideoCategoriesRoot() {
     document.getElementById("video-categories-banners")?.classList.remove("hidden");
     document.getElementById("video-drill-header")?.classList.add("hidden");
+    document.getElementById("video-subcats-strip")?.classList.add("hidden");
     document.getElementById("video-catalog-grid")?.classList.add("hidden");
   }
 
   async function loadVideoCategories(lang = "fr") {
     const langLetter = window.DFWolNet.getLangLetter(lang);
-    const select = document.getElementById("video-category-select");
     const bannersEl = document.getElementById("video-categories-banners");
     if (bannersEl) bannersEl.innerHTML = `<div class="loading-box">⏳ Chargement des catégories vidéo…</div>`;
 
@@ -147,15 +148,6 @@ window.DFWolVideo = (function () {
       const subCats = (vodData && vodData.category && vodData.category.subcategories) || [];
       loadedCategoriesLang = lang;
       cachedCategories = subCats;
-
-      if (select) {
-        const baseOpts = [
-          { key: "LatestVideos", name: lang === "en" ? "Latest Videos" : "Dernières vidéos" },
-          { key: "FeaturedLibraryVideos", name: lang === "en" ? "Featured" : "Notre sélection" }
-        ];
-        const combined = baseOpts.concat(subCats.map((sc) => ({ key: sc.key, name: sc.name })));
-        select.innerHTML = combined.map((c) => `<option value="${esc(c.key)}">${esc(c.name)}</option>`).join("");
-      }
 
       if (bannersEl) {
         const bannerCats = subCats.length ? subCats : [{ key: "LatestVideos", name: lang === "en" ? "Latest Videos" : "Dernières vidéos", images: {} }];
@@ -205,10 +197,42 @@ window.DFWolVideo = (function () {
         `categories/${langLetter}/${encodeURIComponent(categoryKey)}?detailed=1&mediaLimit=24&clientType=www`
       );
       const media = (data && data.category && data.category.media) || [];
-      if (media.length === 0) {
-        const subs = (data && data.category && data.category.subcategories) || [];
+      const subs = (data && data.category && data.category.subcategories) || [];
+      const subStrip = document.getElementById("video-subcats-strip");
+      if (subStrip) {
         if (subs.length > 0) {
-          return loadVideosByCategory(subs[0].key, lang, categoryLabel || subs[0].name);
+          subStrip.classList.remove("hidden");
+          subStrip.innerHTML = subs
+            .map(
+              (sc, idx) =>
+                `<button type="button" class="pill-btn ${idx === 0 && media.length === 0 ? "active" : ""}" data-vsub-key="${esc(sc.key)}" data-vsub-name="${esc(sc.name)}">${esc(sc.name)}</button>`
+            )
+            .join("");
+        } else {
+          subStrip.classList.add("hidden");
+          subStrip.innerHTML = "";
+        }
+      }
+      if (media.length === 0) {
+        if (subs.length > 0) {
+          const firstRes = await window.DFWolNet.mediatorGet(
+            `categories/${langLetter}/${encodeURIComponent(subs[0].key)}?detailed=1&mediaLimit=24&clientType=www`
+          );
+          const subMedia = (firstRes && firstRes.category && firstRes.category.media) || [];
+          if (subMedia.length > 0) {
+            renderVideoCards(
+              subMedia.map((m) => ({
+                lank: m.languageAgnosticNaturalKey,
+                title: m.title,
+                duration: m.durationFormattedMinSec || "",
+                thumb: (m.images && (m.images.lss?.lg || m.images.wss?.lg || m.images.pnr?.lg || m.images.sqr?.lg)) || "",
+                snippet: "",
+                deepLinks: []
+              })),
+              lang
+            );
+            return;
+          }
         }
         grid.innerHTML = `<p class="card-helper-text">Aucune vidéo dans cette catégorie.</p>`;
         return;
@@ -377,10 +401,12 @@ window.DFWolVideo = (function () {
 
       // Configurer la balise <video>
       const videoEl = document.getElementById("dfwol-video-el");
+      const rateSel = document.getElementById("video-rate-select");
       if (videoEl && preferred) {
         // Mettre en pause l'audio global si actif
         window.DFWolAudio && window.DFWolAudio.stopAll();
         videoEl.src = preferred.progressiveDownloadURL;
+        if (rateSel) videoEl.playbackRate = Number(rateSel.value || 1) || 1;
         videoEl.onloadedmetadata = () => {
           if (startTime > 0 && startTime < videoEl.duration) {
             videoEl.currentTime = startTime;
@@ -389,7 +415,18 @@ window.DFWolVideo = (function () {
         };
       }
 
+      window.DFWolStudy &&
+        window.DFWolStudy.recordHistory({
+          type: "video",
+          title: media.title,
+          subtitle: `${lang.toUpperCase()} • ${media.durationFormattedMinSec || "Vidéo JW"}`,
+          lank,
+          lang,
+          thumb: (media.images && (media.images.lss?.lg || media.images.wss?.lg || media.images.sqr?.lg)) || ""
+        });
+
       // Charger les sous-titres .vtt
+      lastActiveCueIdx = -1;
       await loadAndAttachSubtitles(subtitlesUrl, lang);
       playerStage?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
@@ -485,9 +522,74 @@ window.DFWolVideo = (function () {
   }
 
   function init() {
-    document.getElementById("video-category-select")?.addEventListener("change", (e) => {
+    document.getElementById("video-subcats-strip")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-vsub-key]");
+      if (!btn) return;
+      document.querySelectorAll("#video-subcats-strip .pill-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const key = btn.getAttribute("data-vsub-key");
       const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
-      loadVideosByCategory(e.target.value, lang);
+      const grid = document.getElementById("video-catalog-grid");
+      const langLetter = window.DFWolNet.getLangLetter(lang);
+      if (grid && key) {
+        grid.innerHTML = `<div class="loading-box">⏳ Chargement…</div>`;
+        window.DFWolNet
+          .mediatorGet(`categories/${langLetter}/${encodeURIComponent(key)}?detailed=1&mediaLimit=24&clientType=www`)
+          .then((d) => {
+            const mList = (d && d.category && d.category.media) || [];
+            if (!mList.length) {
+              grid.innerHTML = `<p class="card-helper-text">Aucune vidéo dans cette sous-catégorie.</p>`;
+              return;
+            }
+            renderVideoCards(
+              mList.map((m) => ({
+                lank: m.languageAgnosticNaturalKey,
+                title: m.title,
+                duration: m.durationFormattedMinSec || "",
+                thumb: (m.images && (m.images.lss?.lg || m.images.wss?.lg || m.images.pnr?.lg || m.images.sqr?.lg)) || "",
+                snippet: "",
+                deepLinks: []
+              })),
+              lang
+            );
+          })
+          .catch((err) => {
+            grid.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
+          });
+      }
+    });
+
+    document.getElementById("video-rate-select")?.addEventListener("change", (e) => {
+      const videoEl = document.getElementById("dfwol-video-el");
+      if (videoEl) videoEl.playbackRate = Number(e.target.value || 1) || 1;
+    });
+
+    document.getElementById("video-btn-pip")?.addEventListener("click", async () => {
+      const videoEl = document.getElementById("dfwol-video-el");
+      if (!videoEl || !document.pictureInPictureEnabled) {
+        window.DFWolToast && window.DFWolToast("Picture-in-Picture non pris en charge par ce navigateur.");
+        return;
+      }
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else {
+          await videoEl.requestPictureInPicture();
+        }
+      } catch (_) {}
+    });
+
+    document.getElementById("video-btn-playlist")?.addEventListener("click", () => {
+      if (!currentVideoState.media || !window.DFWolStudy) return;
+      const m = currentVideoState.media;
+      window.DFWolStudy.openAddToPlaylistModal({
+        kind: "video",
+        title: m.title,
+        subtitle: `${currentVideoState.lang.toUpperCase()} • ${m.durationFormattedMinSec || "Vidéo"}`,
+        lank: currentVideoState.lank,
+        lang: currentVideoState.lang,
+        thumb: (m.images && (m.images.lss?.lg || m.images.wss?.lg || m.images.sqr?.lg)) || ""
+      });
     });
 
     document.getElementById("video-categories-banners")?.addEventListener("click", (e) => {
@@ -551,8 +653,11 @@ window.DFWolVideo = (function () {
       openVideoInApp(currentVideoState.lank, { lang: nextLang, startTime: curT, skipTabSwitch: true });
     });
 
+    let tfTimer = null;
     document.getElementById("video-transcript-filter")?.addEventListener("input", (e) => {
-      renderTranscriptList(e.target.value);
+      const val = e.target.value;
+      clearTimeout(tfTimer);
+      tfTimer = setTimeout(() => renderTranscriptList(val), 140);
     });
 
     document.getElementById("video-transcript-list")?.addEventListener("click", (e) => {
@@ -566,32 +671,47 @@ window.DFWolVideo = (function () {
       }
     });
 
-    // Surlignage en temps réel du sous-titre actif
+    // Surlignage en temps réel + auto-scroll du sous-titre actif (uniquement lors d'un changement de cue)
     document.getElementById("dfwol-video-el")?.addEventListener("timeupdate", (e) => {
       const t = e.target.currentTime;
       const cues = currentVideoState.cues;
       if (!cues.length) return;
       const activeIdx = cues.findIndex((c) => t >= c.start && t <= c.end);
+      if (activeIdx === lastActiveCueIdx) return;
+      lastActiveCueIdx = activeIdx;
       const list = document.getElementById("video-transcript-list");
       if (!list) return;
       list.querySelectorAll(".transcript-cue-btn.active").forEach((b) => b.classList.remove("active"));
       if (activeIdx >= 0) {
         const activeBtn = list.querySelector(`[data-cue-idx="${activeIdx}"]`);
-        if (activeBtn) activeBtn.classList.add("active");
+        if (activeBtn) {
+          activeBtn.classList.add("active");
+          const containerTop = list.scrollTop;
+          const containerBottom = containerTop + list.clientHeight;
+          const elTop = activeBtn.offsetTop;
+          const elBottom = elTop + activeBtn.offsetHeight;
+          if (elTop < containerTop || elBottom > containerBottom) {
+            list.scrollTo({ top: Math.max(0, elTop - list.clientHeight / 3), behavior: "smooth" });
+          }
+        }
       }
     });
 
     // Actions d'extraction des sous-titres
     document.getElementById("sub-btn-copy-plain")?.addEventListener("click", async () => {
       if (!currentVideoState.cues.length) return;
-      await navigator.clipboard.writeText(buildPlainTranscript(currentVideoState.cues));
-      window.DFWolToast && window.DFWolToast("Texte des sous-titres copié !");
+      try {
+        await navigator.clipboard.writeText(buildPlainTranscript(currentVideoState.cues));
+        window.DFWolToast && window.DFWolToast("Texte des sous-titres copié !");
+      } catch (_) {}
     });
 
     document.getElementById("sub-btn-copy-ts")?.addEventListener("click", async () => {
       if (!currentVideoState.cues.length) return;
-      await navigator.clipboard.writeText(buildTimestampedTranscript(currentVideoState.cues));
-      window.DFWolToast && window.DFWolToast("Transcription horodatée copiée !");
+      try {
+        await navigator.clipboard.writeText(buildTimestampedTranscript(currentVideoState.cues));
+        window.DFWolToast && window.DFWolToast("Transcription horodatée copiée !");
+      } catch (_) {}
     });
 
     document.getElementById("sub-btn-dl-vtt")?.addEventListener("click", () => {
@@ -625,7 +745,7 @@ window.DFWolVideo = (function () {
             ${refs
               .map(
                 (r) =>
-                  `<button type="button" class="chip-btn" data-inapp-bible="${r.bookNum}:${r.chapter}:${r.verseStart || 1}">${esc(r.label)}</button>`
+                  `<button type="button" class="chip-btn" data-inapp-bible="${esc(r.dataAttr)}">${esc(r.label)}</button>`
               )
               .join("")}
           </div>
@@ -675,6 +795,7 @@ window.DFWolVideo = (function () {
     loadVideosByCategory,
     searchVideosAndSubtitles,
     openVideoInApp,
-    parseVtt
+    parseVtt,
+    getCurrentVideoState: () => currentVideoState
   };
 })();

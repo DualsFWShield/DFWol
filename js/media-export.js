@@ -328,11 +328,24 @@ window.DFWolExport = (function () {
       const art = window.DFWolReader && window.DFWolReader.getCurrentArticleData();
       if (art) {
         const liveBody = document.getElementById("reader-article-body");
+        let snapshotHtml = art.html;
+        if (liveBody) {
+          const clone = liveBody.cloneNode(true);
+          const origTas = liveBody.querySelectorAll("textarea");
+          const cloneTas = clone.querySelectorAll("textarea");
+          origTas.forEach((ta, i) => {
+            if (cloneTas[i]) {
+              cloneTas[i].setAttribute("data-live-val", ta.value);
+              cloneTas[i].textContent = ta.value;
+            }
+          });
+          snapshotHtml = clone.innerHTML;
+        }
         source = {
           type: "article",
           title: art.title,
           subtitle: art.citation || "WOL.jw.org",
-          html: liveBody ? liveBody.innerHTML : art.html,
+          html: snapshotHtml,
           docId: art.docId,
           lang: art.lang || "fr",
           baseUrl: art.url
@@ -451,7 +464,7 @@ window.DFWolExport = (function () {
     // Notes & Champs réponses
     wrapper.querySelectorAll(".gen-field").forEach((gf) => {
       const ta = gf.querySelector("textarea");
-      const val = ta ? ta.value.trim() : "";
+      const val = ta ? (ta.getAttribute("data-live-val") ?? ta.value ?? ta.textContent ?? "").trim() : "";
       if (!options.includeNotes) {
         gf.remove();
         return;
@@ -491,7 +504,8 @@ window.DFWolExport = (function () {
     // Versets inclus (multi-versets pris en charge)
     let appendixHtml = "";
     if (options.includeVerses) {
-      const blocks = Array.from(wrapper.querySelectorAll("p, li, blockquote, div.stdPullQuote"));
+      const rawBlocks = Array.from(wrapper.querySelectorAll("p, li, blockquote, div.stdPullQuote"));
+      const blocks = rawBlocks.filter((blk) => !rawBlocks.some((other) => other !== blk && other.contains(blk)));
       const blockRefsList = [];
       const allUniqueRefs = new Map();
       const chapterCache = new Map();
@@ -659,7 +673,10 @@ window.DFWolExport = (function () {
               const s = document.createElement("script");
               s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js";
               s.onload = resolve;
-              s.onerror = () => reject(new Error("Impossible de charger html2pdf.js (hors-ligne ?). Utilisez Imprimer PDF."));
+              s.onerror = () => {
+                html2pdfPromise = null;
+                reject(new Error("Impossible de charger html2pdf.js (hors-ligne ?). Utilisez Imprimer PDF."));
+              };
               document.head.appendChild(s);
             });
           }

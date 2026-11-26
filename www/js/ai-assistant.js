@@ -589,7 +589,6 @@ window.DFWolAI = (function () {
       .join("");
 
     if (window.DFWolReader) {
-      container.dataset.inappBound = "0";
       window.DFWolReader.attachInAppLinkInterceptor(container, lang);
     }
 
@@ -597,8 +596,14 @@ window.DFWolAI = (function () {
       btn.addEventListener("click", async () => {
         const m = conversation[Number(btn.getAttribute("data-ai-copy"))];
         if (m) {
-          await navigator.clipboard.writeText(m.text);
-          window.DFWolToast && window.DFWolToast("Réponse IA copiée !");
+          if (window.DFWolStudy && typeof window.DFWolStudy.safeCopyText === "function") {
+            await window.DFWolStudy.safeCopyText(m.text, "Réponse IA copiée !");
+          } else {
+            try {
+              await navigator.clipboard.writeText(m.text);
+              window.DFWolToast && window.DFWolToast("Réponse IA copiée !");
+            } catch (_) {}
+          }
         }
       });
     });
@@ -669,8 +674,26 @@ window.DFWolAI = (function () {
     try {
       let messagesPayload = [];
       if (followUpText) {
-        conversation.push({ role: "user", text: followUpText });
-        messagesPayload = [{ role: "user", text: currentBundle.promptText }].concat(conversation);
+        if (conversation.length === 0) {
+          const combined = `${currentBundle.promptText}\n\nQuestion complémentaire :\n${followUpText}`;
+          conversation.push({ role: "user", text: followUpText });
+          messagesPayload = [{ role: "user", text: combined }];
+        } else if (conversation[conversation.length - 1].role === "user") {
+          conversation[conversation.length - 1].text += `\n\n${followUpText}`;
+          messagesPayload = [{ role: "user", text: currentBundle.promptText }].concat(conversation.slice(1));
+          if (conversation[0].role === "user") {
+            messagesPayload = [{ role: "user", text: `${currentBundle.promptText}\n\n${conversation[0].text}` }].concat(conversation.slice(1));
+          } else {
+            messagesPayload = [{ role: "user", text: currentBundle.promptText }].concat(conversation);
+          }
+        } else {
+          conversation.push({ role: "user", text: followUpText });
+          if (conversation[0].role === "user") {
+            messagesPayload = [{ role: "user", text: `${currentBundle.promptText}\n\n${conversation[0].text}` }].concat(conversation.slice(1));
+          } else {
+            messagesPayload = [{ role: "user", text: currentBundle.promptText }].concat(conversation);
+          }
+        }
       } else {
         conversation = [];
         messagesPayload = [{ role: "user", text: currentBundle.promptText }];
@@ -830,8 +853,16 @@ window.DFWolAI = (function () {
 
     document.getElementById("btn-ai-copy-prompt")?.addEventListener("click", async () => {
       if (!currentBundle) return;
-      await navigator.clipboard.writeText(currentBundle.promptText);
-      window.DFWolToast && window.DFWolToast("Prompt complet copié dans le presse-papiers !");
+      if (window.DFWolStudy && typeof window.DFWolStudy.safeCopyText === "function") {
+        await window.DFWolStudy.safeCopyText(currentBundle.promptText, "Prompt complet copié dans le presse-papiers !");
+      } else {
+        try {
+          await navigator.clipboard.writeText(currentBundle.promptText);
+          window.DFWolToast && window.DFWolToast("Prompt complet copié dans le presse-papiers !");
+        } catch (_) {
+          window.DFWolToast && window.DFWolToast("Impossible d'accéder au presse-papiers.");
+        }
+      }
     });
 
     document.getElementById("btn-ai-generate")?.addEventListener("click", () => generateAnswer(null));

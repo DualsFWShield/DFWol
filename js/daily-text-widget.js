@@ -117,10 +117,14 @@ window.DFWolDailyText = (function () {
       ? "Faithfulness"
       : "Fidélité";
 
-    // Découpage en phrases propres du commentaire
+    // Découpage en phrases propres du commentaire (protège les abréviations courantes "Ps.", "Mat.", "v.", "chap.", "cf.")
     const cleanComment = String(commentaryPlain || "").replace(/\s+/g, " ").trim();
-    const sentences = (cleanComment.match(/[^.!?]+[.!?]+/g) || [cleanComment])
-      .map((s) => s.trim())
+    const safeForSplit = cleanComment.replace(
+      /\b(Ps|Mat|Mc|Lc|Jn|Ac|Rm|Rom|Co|Cor|Ga|Ép|Éph|Ph|Col|Th|Tm|Ti|Phm|Hé|Héb|Jc|Pi|Ré|Rév|Gn|Gen|Ex|Lv|Lév|Nb|Dt|Deut|Jos|Jg|Rt|Sa|Ro|Ch|Chr|Esd|Né|Est|Jb|Pr|Prov|Ec|Ct|Is|És|Jr|Jér|Lm|Ez|Éz|Dn|Dan|Os|Jl|Am|Ab|Jon|Mi|Na|Ha|So|Ag|Za|Mal|chap|ch|art|cf|p|pp|v|vv|n|vol|éd)\./gi,
+      "$1\u2024"
+    );
+    const sentences = (safeForSplit.match(/[^.!?]+[.!?]+/g) || [safeForSplit])
+      .map((s) => s.replace(/\u2024/g, ".").trim())
       .filter((s) => s.length > 15 && !/^\([a-z]+\d+/i.test(s));
 
     // 2. Résumé en 1 PHRASE (privilégier les phrases d'application / conclusion avec mots forts)
@@ -190,6 +194,13 @@ window.DFWolDailyText = (function () {
     return `${langCode}_${yyyy}-${mm}-${dd}`;
   }
 
+  function formatLocalIsoDate(dateObj = new Date()) {
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const dd = String(dateObj.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
   function getCuratedFallback(dateObj = new Date(), langCode = "fr") {
     const lang = langCode === "en" ? "en" : "fr";
     const list = CURATED_DAILY_TEXTS[lang];
@@ -205,7 +216,7 @@ window.DFWolDailyText = (function () {
     );
 
     return {
-      dateIso: dateObj.toISOString().slice(0, 10),
+      dateIso: formatLocalIsoDate(dateObj),
       formattedDate: formatDateHuman(dateObj, lang),
       scriptureText: item.scriptureText,
       scriptureRef: item.scriptureRef,
@@ -229,7 +240,14 @@ window.DFWolDailyText = (function () {
   function sanitizeCommentaryHtml(bodyEl, lang) {
     if (!bodyEl) return "";
     const clone = bodyEl.cloneNode(true);
-    clone.querySelectorAll("script, style").forEach((el) => el.remove());
+    clone.querySelectorAll("script, style, iframe, object, embed, form").forEach((el) => el.remove());
+    clone.querySelectorAll("*").forEach((el) => {
+      Array.from(el.attributes).forEach((attr) => {
+        if (/^on/i.test(attr.name) || (/^(?:href|src)$/i.test(attr.name) && /^\s*(?:javascript|vbscript):/i.test(attr.value))) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
     const walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null);
     let n;
     while ((n = walker.nextNode())) {
@@ -270,12 +288,13 @@ window.DFWolDailyText = (function () {
       const parser = new DOMParser();
       const doc = parser.parseFromString(res.html, "text/html");
 
-      // Sur WOL, la page /wol/dt/ contient 1 ou 3 jours dans .itemData ; chercher celui qui correspond au mois/jour
+      // Sur WOL, la page /wol/dt/ contient 1 ou 3 jours dans .itemData ; gère aussi "1er" en français
       const targetDay = String(dateObj.getDate());
+      const dayRe = new RegExp(`(?:^|\\D)${targetDay}(?:er\\b|\\b)`, "i");
       const itemBlocks = Array.from(doc.querySelectorAll(".itemData"));
       let chosenBlock = itemBlocks.find((b) => {
         const h2 = b.querySelector("header h2");
-        return h2 && new RegExp(`\\b${targetDay}\\b`).test(h2.textContent || "");
+        return h2 && dayRe.test(h2.textContent || "");
       });
       if (!chosenBlock && itemBlocks.length > 0) {
         chosenBlock = itemBlocks[0];
@@ -309,7 +328,7 @@ window.DFWolDailyText = (function () {
         const summaries = generateDailyTextSummaries(scriptureText, scriptureRef, commentaryPlain, lang);
 
         const payload = {
-          dateIso: dateObj.toISOString().slice(0, 10),
+          dateIso: formatLocalIsoDate(dateObj),
           formattedDate: formatDateHuman(dateObj, lang),
           scriptureText,
           scriptureRef,

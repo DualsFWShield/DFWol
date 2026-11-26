@@ -408,10 +408,7 @@ window.DFWolNet = (function () {
     const customBase = getCustomProxyBase();
     if (!result && customBase) {
       try {
-        const sep = customBase.includes("?") ? "&" : "?";
-        const proxyUrl = customBase.includes("{url}")
-          ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
-          : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
+        const proxyUrl = buildCustomProxyUrl(customBase, cleanUrl);
         const resp = await fetchWithTimeout(proxyUrl, {}, 12000);
         if (resp.ok) {
           const buf = await resp.arrayBuffer();
@@ -452,7 +449,7 @@ window.DFWolNet = (function () {
 
     if (!result) {
       const err = new Error(
-        "Limite temporaire des proxies publics sur le Web. Cliquez sur Réessayer ou configurez un mini-proxy Cloudflare Worker gratuit (30s) dans Widget & Atelier."
+        "Limite temporaire des proxies publics sur le Web. Cliquez sur Réessayer ou configurez un mini-proxy Cloudflare Worker gratuit (30s) dans Étude individuelle → Paramètres."
       );
       err.isProxyRateLimit = true;
       throw err;
@@ -509,10 +506,7 @@ window.DFWolNet = (function () {
       }
       const customBase = getCustomProxyBase();
       if (customBase) {
-        const sep = customBase.includes("?") ? "&" : "?";
-        const proxyUrl = customBase.includes("{url}")
-          ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
-          : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
+        const proxyUrl = buildCustomProxyUrl(customBase, cleanUrl);
         const resp = await fetch(proxyUrl);
         return await readStream(resp);
       }
@@ -521,26 +515,144 @@ window.DFWolNet = (function () {
     throw new Error("Téléchargement CORS direct bloqué sur cet origine.");
   }
 
+  function buildCustomProxyUrl(customBase, targetUrl) {
+    const trimmed = String(customBase || "").trim();
+    if (!trimmed) return "";
+    if (trimmed.includes("{url}")) return trimmed.replace("{url}", encodeURIComponent(targetUrl));
+    if (/[?&]url=$/i.test(trimmed)) return `${trimmed}${encodeURIComponent(targetUrl)}`;
+    const sep = trimmed.includes("?") ? "&" : "?";
+    return `${trimmed}${sep}url=${encodeURIComponent(targetUrl)}`;
+  }
+
   function proxyImageUrl(rawUrl) {
-    const cleanUrl = String(rawUrl || "").trim();
-    if (!cleanUrl || cleanUrl.startsWith("data:") || cleanUrl.startsWith("/api/proxy")) return cleanUrl;
-    if (/^https?:\/\/wol\.jw\.org\/(?:[a-z]{2}\/)?wol\/mp\//i.test(cleanUrl)) {
+    let cleanUrl = String(rawUrl || "").trim();
+    if (!cleanUrl || cleanUrl.startsWith("data:") || cleanUrl.startsWith("blob:") || cleanUrl.startsWith("/api/proxy")) {
+      return cleanUrl;
+    }
+    if (/^\/(?:[a-z]{2,4}\/)?wol\//i.test(cleanUrl)) {
+      cleanUrl = `https://wol.jw.org${cleanUrl}`;
+    }
+    if (/^https?:\/\/wol\.jw\.org\//i.test(cleanUrl)) {
       if (isLocalServerProxyAvailable()) {
         return `/api/proxy?url=${encodeURIComponent(cleanUrl)}`;
       }
       const customBase = getCustomProxyBase();
       if (customBase) {
-        const sep = customBase.includes("?") ? "&" : "?";
-        return customBase.includes("{url}")
-          ? customBase.replace("{url}", encodeURIComponent(cleanUrl))
-          : `${customBase}${sep}url=${encodeURIComponent(cleanUrl)}`;
+        return buildCustomProxyUrl(customBase, cleanUrl);
       }
     }
     return cleanUrl;
   }
 
+  async function fetchRssFeed(rssUrl) {
+    const res = await fetchWolHtml(rssUrl, { skipValidation: true });
+    const parser = new DOMParser();
+    let doc = parser.parseFromString(res.html, "application/xml");
+    if (doc.querySelector("parsererror")) {
+      doc = parser.parseFromString(res.html, "text/html");
+    }
+    const items = Array.from(doc.querySelectorAll("item"));
+    return items.map((item) => {
+      const title = (item.querySelector("title")?.textContent || "").trim();
+      const linkEl = item.querySelector("link");
+      const link = ((linkEl && (linkEl.textContent || linkEl.getAttribute("href"))) || "").trim();
+      const pubDate = (item.querySelector("pubDate")?.textContent || "").trim();
+      const rawDesc = (item.querySelector("description")?.textContent || "").trim();
+      const tmp = document.createElement("div");
+      tmp.innerHTML = rawDesc;
+      const encUrl = item.querySelector("enclosure")?.getAttribute("url") || "";
+      const mediaThumb = item.getElementsByTagName("media:thumbnail")[0]?.getAttribute("url") || "";
+      const inlineImg = tmp.querySelector("img")?.getAttribute("src") || "";
+      const image = proxyImageUrl(encUrl || mediaThumb || inlineImg || "");
+      const description = (tmp.textContent || "").replace(/\s+/g, " ").trim();
+      return { title, link, pubDate, description, image };
+    });
+  }
+
+  const bibleCompareCache = new Map();
+
+  async function fetchBibleComparison(bookNum, chapter, versesInput, lang = "fr") {
+    const vList = Array.isArray(versesInput) ? versesInput : [Number(versesInput) || 1];
+    const cacheKey = `${lang}:${bookNum}:${chapter}:${vList.join(",")}`;
+    if (bibleCompareCache.has(cacheKey)) {
+      return bibleCompareCache.get(cacheKey);
+    }
+
+    const bNum = Number(bookNum);
+    const ch = Number(chapter);
+    const editions =
+      lang === "en"
+        ? [
+            { code: "nwtsty", label: "NWT (Study Edition)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/nwtsty/${bNum}/${ch}`, lang: "en" },
+            { code: "Rbi8", label: "NWT (1984 Reference)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/Rbi8/${bNum}/${ch}`, lang: "en" },
+            { code: "bi10", label: "King James Version (KJV)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/bi10/${bNum}/${ch}`, lang: "en" },
+            { code: "by", label: "American Standard (ASV)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/by/${bNum}/${ch}`, lang: "en" },
+            { code: "nwtsty-fr", label: "TMN d'étude (Français)", url: `https://wol.jw.org/fr/wol/b/r30/lp-f/nwtsty/${bNum}/${ch}`, lang: "fr" }
+          ]
+        : [
+            { code: "nwtsty", label: "TMN (Édition d'étude)", url: `https://wol.jw.org/fr/wol/b/r30/lp-f/nwtsty/${bNum}/${ch}`, lang: "fr" },
+            { code: "Rbi8", label: "TMN (1995 avec notes)", url: `https://wol.jw.org/fr/wol/b/r30/lp-f/Rbi8/${bNum}/${ch}`, lang: "fr" },
+            { code: "nwtsty-en", label: "NWT Study (English)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/nwtsty/${bNum}/${ch}`, lang: "en" },
+            { code: "bi10", label: "King James Version (EN)", url: `https://wol.jw.org/en/wol/b/r1/lp-e/bi10/${bNum}/${ch}`, lang: "en" }
+          ];
+
+    if (bNum >= 40) {
+      editions.push({
+        code: "int",
+        label: lang === "en" ? "Kingdom Interlinear (Greek-EN)" : "Interlinéaire du Royaume (Grec-EN)",
+        url: `https://wol.jw.org/en/wol/b/r1/lp-e/int/${bNum}/${ch}`,
+        lang: "en"
+      });
+    }
+
+    const extractVersesFromDoc = (htmlStr) => {
+      const doc = new DOMParser().parseFromString(htmlStr, "text/html");
+      const out = {};
+      vList.forEach((vn) => {
+        const spans = doc.querySelectorAll(`span[id^="v${bNum}-${ch}-${vn}-"]`);
+        const parts = [];
+        spans.forEach((sp) => {
+          const c = sp.cloneNode(true);
+          c.querySelectorAll(".vl, .cl, a.b, a.fn").forEach((n) => n.remove());
+          const t = String(c.textContent || "").replace(/[\u00a0\u202f\u200b]/g, " ").replace(/\s+/g, " ").trim();
+          if (t) parts.push(t);
+        });
+        if (parts.length) {
+          out[vn] = parts.join(" ");
+        } else {
+          // Fallback pour Rbi8 / KJV / ASV / Interlinéaire (format id différent possible)
+          const altSpan = doc.querySelector(`[data-verse="${vn}"], #v${bNum}-${ch}-${vn}, .v-${vn}`);
+          if (altSpan) {
+            const c = altSpan.cloneNode(true);
+            c.querySelectorAll(".vl, .cl, a.b, a.fn").forEach((n) => n.remove());
+            out[vn] = String(c.textContent || "").replace(/^\s*\d+\s*/, "").replace(/\s+/g, " ").trim();
+          }
+        }
+      });
+      return out;
+    };
+
+    const rows = await Promise.all(
+      editions.map(async (ed) => {
+        try {
+          const res = await fetchWolHtml(ed.url);
+          const versesMap = extractVersesFromDoc(res.html);
+          const text = vList.map((vn) => (versesMap[vn] ? (vList.length > 1 ? `${vn} ${versesMap[vn]}` : versesMap[vn]) : "")).filter(Boolean).join(" ");
+          return { code: ed.code, label: ed.label, lang: ed.lang, url: ed.url, text: text || null };
+        } catch (_) {
+          return { code: ed.code, label: ed.label, lang: ed.lang, url: ed.url, text: null };
+        }
+      })
+    );
+
+    const valid = rows.filter((r) => r.text);
+    if (valid.length) bibleCompareCache.set(cacheKey, valid);
+    return valid;
+  }
+
   function clearHtmlCache() {
     htmlMemoryCache.clear();
+    bibleCompareCache.clear();
     proxyCooldowns.clear();
   }
 
@@ -548,6 +660,7 @@ window.DFWolNet = (function () {
     getLangLetter,
     getCustomProxyBase,
     setCustomProxyBase,
+    buildCustomProxyUrl,
     isNativeCapacitor,
     isLocalServerProxyAvailable,
     isAllowedUpstreamUrl,
@@ -560,6 +673,8 @@ window.DFWolNet = (function () {
     fetchTextDirect,
     fetchBlobWithProxyFallback,
     proxyImageUrl,
+    fetchRssFeed,
+    fetchBibleComparison,
     extractDocIdFromUrlOrHtml,
     fetchWolHtml,
     clearHtmlCache

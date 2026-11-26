@@ -343,7 +343,8 @@ const server = http.createServer(async (req, res) => {
 
       const upstream = await fetch(target.toString(), {
         headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DFWolStudio/3.0" },
-        redirect: "follow"
+        redirect: "follow",
+        signal: AbortSignal.timeout(12000)
       });
       const buf = Buffer.from(await upstream.arrayBuffer());
       res.writeHead(upstream.status, {
@@ -357,7 +358,7 @@ const server = http.createServer(async (req, res) => {
 
     let relPath = reqUrl.pathname === "/" ? "/index.html" : reqUrl.pathname;
     const fullPath = path.resolve(ROOT, "." + relPath);
-    if (!fullPath.startsWith(ROOT)) {
+    if (fullPath !== ROOT && !fullPath.startsWith(ROOT + path.sep)) {
       res.writeHead(403);
       return res.end("Forbidden");
     }
@@ -371,8 +372,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404);
     res.end("Not Found");
   } catch (err) {
-    res.writeHead(502, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("Proxy Error: " + err.message);
+    const isTimeout = err && (err.name === "TimeoutError" || err.name === "AbortError");
+    res.writeHead(isTimeout ? 504 : 502, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end((isTimeout ? "Upstream Proxy Timeout: " : "Proxy Error: ") + err.message);
   }
 });
 

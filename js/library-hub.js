@@ -13,9 +13,12 @@ window.DFWolLibrary = (function () {
   let activeSubtab = "publications";
   let loadedLangPubs = null;
   let loadedLangAudio = null;
+  let loadedLangNews = null;
+  let loadedLangHomeNews = null;
   let wolCategoryUrls = { fr: {}, en: {} };
-  let currentPubDrill = null;
-  let currentAudioDrill = null;
+  let pubDrillStack = [];
+  let audioDrillStack = [];
+  let cachedNewsItems = [];
   let uiBound = false;
 
   function esc(str) {
@@ -220,21 +223,38 @@ window.DFWolLibrary = (function () {
       id: "indexes",
       fr: "Index & Guide de recherche",
       en: "Indexes & Research Guide",
-      match: /index|guide de recherche/i,
-      wolPathFr: "https://wol.jw.org/fr/wol/lv/r30/lp-f/0/21275",
-      wolPathEn: "https://wol.jw.org/en/wol/lv/r1/lp-e/0/21275",
+      match: /index|guide de recherche|research guide/i,
+      wolSubpath: "rsg",
+      searchQ: "Guide de recherche",
       svg: `<svg viewBox="0 0 28 28"><circle cx="14" cy="14" r="9.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m17 11-2 5-5 2 2-5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`
     },
     {
       id: "insight",
       fr: "Étude perspicace (it)",
       en: "Insight on the Scriptures",
-      match: /perspicace|insight|ouvrages de r[ée]f[ée]rence/i,
-      wolPathFr: "https://wol.jw.org/fr/wol/lv/r30/lp-f/0/2",
-      wolPathEn: "https://wol.jw.org/en/wol/lv/r1/lp-e/0/2",
+      match: /perspicace|insight|ouvrages de r[ée]f[ée]rence|reference works/i,
+      wolSubpath: "it",
+      searchQ: "Étude perspicace",
       svg: `<svg viewBox="0 0 28 28"><path d="M5 10h18M7 10v10M12 10v10M16 10v10M21 10v10M4 20h20M14 5l10 5H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`
+    },
+    {
+      id: "glossary",
+      fr: "Glossaire biblique (nwtstg)",
+      en: "Bible Glossary (nwtstg)",
+      match: /glossaire|glossary/i,
+      wolSubpath: "nwtstg",
+      searchQ: "Glossaire",
+      svg: `<svg viewBox="0 0 28 28"><path d="M5 6h14v17H5zM19 8h4v15h-4M8.5 11h7M8.5 14.5h5.5M8.5 18h6.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
     }
   ];
+
+  function toProxiedImg(url) {
+    if (!url) return "";
+    const abs = url.startsWith("/") ? `https://wol.jw.org${url}` : url;
+    return window.DFWolNet && typeof window.DFWolNet.proxyImageUrl === "function"
+      ? window.DFWolNet.proxyImageUrl(abs)
+      : abs;
+  }
 
   async function resolveWolRootCategories(lang = "fr") {
     if (Object.keys(wolCategoryUrls[lang] || {}).length > 0) return wolCategoryUrls[lang];
@@ -261,7 +281,7 @@ window.DFWolLibrary = (function () {
   }
 
   function renderPublicationsRoot(lang = "fr") {
-    currentPubDrill = null;
+    pubDrillStack = [];
     const listEl = document.getElementById("lib-publications-list");
     const drillEl = document.getElementById("lib-publications-drill");
     if (drillEl) drillEl.classList.add("hidden");
@@ -292,16 +312,17 @@ window.DFWolLibrary = (function () {
     const bodyEl = document.getElementById("lib-pub-drill-body");
     if (!drillEl || !bodyEl) return;
 
-    currentPubDrill = { catId, label };
+    pubDrillStack = [];
     listEl?.classList.add("hidden");
     drillEl.classList.remove("hidden");
     if (titleEl) titleEl.textContent = label;
     bodyEl.innerHTML = `<div class="loading-box">⏳ Chargement de « ${esc(label)} »…</div>`;
 
     try {
+      const cfg = window.DFWolBible.getLangConfig(lang);
+      const directPubUrl = cat.wolSubpath ? `https://wol.jw.org/${cfg.code}/wol/publication/${cfg.r}/${cfg.lp}/${cat.wolSubpath}` : null;
       const resolvedMap = await resolveWolRootCategories(lang);
-      const targetUrl =
-        resolvedMap[cat.id] || (lang === "en" ? cat.wolPathEn : cat.wolPathFr) || null;
+      const targetUrl = directPubUrl || resolvedMap[cat.id] || null;
 
       if (targetUrl) {
         const res = await window.DFWolNet.fetchWolHtml(targetUrl);
@@ -320,12 +341,13 @@ window.DFWolLibrary = (function () {
           seen.add(href);
           const line2 = cleanStr(a.querySelector(".cardLine2")?.textContent || "");
           const imgEl = a.querySelector("img");
-          const thumb = imgEl ? (imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || "").trim() : "";
-          const fullThumb = thumb && thumb.startsWith("/") ? `https://wol.jw.org${thumb}` : thumb;
+          const rawThumb = imgEl ? (imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || "").trim() : "";
+          const fullThumb = toProxiedImg(rawThumb);
           links.push({ title: line1, sub: line2, url: href, thumb: fullThumb });
         });
 
         if (links.length > 0) {
+          pubDrillStack = [{ title: label, items: links, url: targetUrl }];
           renderPubDrillItems(bodyEl, links, lang);
           return;
         }
@@ -342,9 +364,10 @@ window.DFWolLibrary = (function () {
         title: it.title,
         sub: it.context,
         url: it.wolUrl,
-        thumb: it.imageUrl
+        thumb: toProxiedImg(it.imageUrl)
       }));
       if (items.length > 0) {
+        pubDrillStack = [{ title: label, items, url: targetUrl || "" }];
         renderPubDrillItems(bodyEl, items, lang);
       } else {
         bodyEl.innerHTML = `<p class="card-helper-text">Aucune publication trouvée dans cette catégorie.</p>`;
@@ -356,18 +379,18 @@ window.DFWolLibrary = (function () {
 
   function renderPubDrillItems(container, items, lang) {
     container.innerHTML = items
-      .slice(0, 50)
+      .slice(0, 60)
       .map(
         (it, idx) => `
         <div class="jwl-audio-row">
           <button type="button" class="jwl-audio-row-main" data-open-pub-url="${esc(it.url)}">
-            ${it.thumb ? `<img src="${esc(it.thumb)}" alt="" class="jwl-audio-thumb jwl-pub-cover" loading="lazy" />` : `<div class="jwl-pub-thumb-ph">📘</div>`}
+            ${it.thumb ? `<img src="${esc(it.thumb)}" alt="" class="jwl-audio-thumb jwl-pub-cover" loading="lazy" referrerpolicy="no-referrer" />` : `<div class="jwl-pub-thumb-ph">📘</div>`}
             <div class="jwl-audio-row-text">
               <strong>${esc(it.title)}</strong>
               ${it.sub ? `<small>${esc(it.sub)}</small>` : ""}
             </div>
           </button>
-          <button type="button" class="jwl-row-more-btn" data-pub-more="${idx}" title="Options">⋮</button>
+          <button type="button" class="jwl-row-more-btn" data-pub-more="${idx}" title="Options" aria-label="Options">⋮</button>
         </div>
       `
       )
@@ -415,6 +438,7 @@ window.DFWolLibrary = (function () {
       const items = [];
       const seen = new Set();
       doc.querySelectorAll("a[href]").forEach((a) => {
+        if (a.closest("nav, header, footer, .breadcrumbs, .siteNav")) return;
         let href = a.getAttribute("href") || "";
         if (!href || href.startsWith("#") || !/\/wol\//i.test(href)) return;
         if (href.startsWith("/")) href = `https://wol.jw.org${href}`;
@@ -422,12 +446,16 @@ window.DFWolLibrary = (function () {
         seen.add(href);
         const txt = cleanStr(a.querySelector(".cardLine1")?.textContent || a.textContent || "");
         const sub = cleanStr(a.querySelector(".cardLine2")?.textContent || "");
-        const thumb = a.querySelector("img")?.getAttribute("src") || "";
-        const fullThumb = thumb && thumb.startsWith("/") ? `https://wol.jw.org${thumb}` : thumb;
+        const rawThumb = a.querySelector("img")?.getAttribute("src") || a.querySelector("img")?.getAttribute("data-src") || "";
+        const fullThumb = toProxiedImg(rawThumb);
         if (txt && txt.length > 1) items.push({ title: txt, sub, url: href, thumb: fullThumb });
       });
-      if (items.length > 0) renderPubDrillItems(bodyEl, items, lang);
-      else window.DFWolReader.openArticleInApp(wolUrl, { lang });
+      if (items.length > 0) {
+        pubDrillStack.push({ title, items, url: wolUrl });
+        renderPubDrillItems(bodyEl, items, lang);
+      } else {
+        window.DFWolReader.openArticleInApp(wolUrl, { lang });
+      }
     } catch (_) {
       window.DFWolReader.openArticleInApp(wolUrl, { lang });
     }
@@ -438,6 +466,7 @@ window.DFWolLibrary = (function () {
   // ==========================================================================
 
   async function loadAudioCategories(lang = "fr") {
+    audioDrillStack = [];
     const listEl = document.getElementById("lib-audio-list");
     const drillEl = document.getElementById("lib-audio-drill");
     if (drillEl) drillEl.classList.add("hidden");
@@ -478,14 +507,59 @@ window.DFWolLibrary = (function () {
     }
   }
 
-  async function openAudioCategory(catKey, catName, lang = "fr") {
+  async function jumpToSongbookTrack(songNumber, lang = "fr") {
+    const num = parseInt(songNumber, 10);
+    if (!num || num < 1 || num > 165) {
+      window.DFWolToast && window.DFWolToast("Entrez un numéro de cantique entre 1 et 161.");
+      return;
+    }
+    window.DFWolToast && window.DFWolToast(`⏳ Recherche du cantique ${num}…`);
+    try {
+      const ll = window.DFWolNet.getLangLetter(lang);
+      const candidateKeys = ["Sjjc", "Sjjm", "AudioChants"];
+      const audioRoot = await window.DFWolNet.mediatorGet(`categories/${ll}/Audio?detailed=1&clientType=www`).catch(() => null);
+      const subs = (audioRoot && audioRoot.category && audioRoot.category.subcategories) || [];
+      const matchedKeys = subs
+        .filter((sc) => /chantons joyeusement|sing out joyfully|sjj/i.test(`${sc.key} ${sc.name}`))
+        .sort((a, b) => (/chant|vocal|sjjc/i.test(`${b.key} ${b.name}`) ? 1 : -1))
+        .map((sc) => sc.key);
+      const keysToTry = [...new Set([...matchedKeys, ...candidateKeys])];
+
+      for (const key of keysToTry) {
+        const catData = await window.DFWolNet.mediatorGet(`categories/${ll}/${encodeURIComponent(key)}?detailed=1&mediaLimit=170&clientType=www`).catch(() => null);
+        const media = (catData && catData.category && catData.category.media) || [];
+        const hit = media.find((m) => {
+          const t = cleanStr(m.title || "");
+          return new RegExp(`^(?:cantique\\s+|song\\s+)?0*${num}(?:\\D|$)`, "i").test(t) || new RegExp(`\\b0*${num}\\b`).test(t);
+        });
+        if (hit) {
+          const f = (hit.files || []).find((file) => file.progressiveDownloadURL);
+          if (f && window.DFWolAudio) {
+            window.DFWolAudio.playTrack({
+              title: hit.title,
+              subtitle: catData.category.name || "Cantique",
+              audioUrl: f.progressiveDownloadURL,
+              lang,
+              mode: "mp3"
+            });
+            return;
+          }
+        }
+      }
+      window.DFWolToast && window.DFWolToast(`Cantique ${num} introuvable dans cette langue.`);
+    } catch (err) {
+      window.DFWolToast && window.DFWolToast(err.message);
+    }
+  }
+
+  async function openAudioCategory(catKey, catName, lang = "fr", pushStack = true) {
     const listEl = document.getElementById("lib-audio-list");
     const drillEl = document.getElementById("lib-audio-drill");
     const titleEl = document.getElementById("lib-audio-drill-title");
     const bodyEl = document.getElementById("lib-audio-drill-body");
     if (!drillEl || !bodyEl) return;
 
-    currentAudioDrill = { catKey, catName };
+    if (pushStack) audioDrillStack.push({ catKey, catName });
     listEl?.classList.add("hidden");
     drillEl.classList.remove("hidden");
     if (titleEl) titleEl.textContent = catName || "Audio";
@@ -494,7 +568,7 @@ window.DFWolLibrary = (function () {
     try {
       const ll = window.DFWolNet.getLangLetter(lang);
       const data = await window.DFWolNet.mediatorGet(
-        `categories/${ll}/${encodeURIComponent(catKey)}?detailed=1&mediaLimit=60&clientType=www`
+        `categories/${ll}/${encodeURIComponent(catKey)}?detailed=1&mediaLimit=165&clientType=www`
       );
       const cat = data && data.category;
       const subs = (cat && cat.subcategories) || [];
@@ -541,7 +615,7 @@ window.DFWolLibrary = (function () {
           html += tracks
             .map(
               (t, idx) => `
-              <div class="jwl-audio-track-card">
+              <div class="jwl-audio-track-card" data-track-url="${esc(t.url)}">
                 <div class="jwl-audio-track-info">
                   ${t.thumb ? `<img src="${esc(t.thumb)}" alt="" class="jwl-audio-thumb-sm" loading="lazy" />` : `<span class="jwl-track-num">${idx + 1}</span>`}
                   <div class="jwl-audio-track-meta">
@@ -550,9 +624,10 @@ window.DFWolLibrary = (function () {
                   </div>
                 </div>
                 <div class="btn-group">
-                  <button type="button" class="btn-primary btn-xs" data-atr-play="${idx}" title="Écouter">▶</button>
-                  <button type="button" class="btn-secondary btn-xs" data-atr-queue="${idx}" title="Ajouter à la file d'attente">+</button>
-                  <button type="button" class="btn-ghost btn-xs" data-atr-dl="${idx}" title="Télécharger MP3">⬇️</button>
+                  <button type="button" class="btn-primary btn-xs" data-atr-play="${idx}" title="Écouter" aria-label="Écouter">▶</button>
+                  <button type="button" class="btn-secondary btn-xs" data-atr-queue="${idx}" title="File d'attente" aria-label="Ajouter à la file">+</button>
+                  <button type="button" class="btn-secondary btn-xs" data-atr-playlist="${idx}" title="Ajouter à une liste" aria-label="Ajouter à une liste">🎶</button>
+                  <button type="button" class="btn-ghost btn-xs" data-atr-dl="${idx}" title="Télécharger MP3" aria-label="Télécharger MP3">⬇️</button>
                 </div>
               </div>
             `
@@ -588,6 +663,20 @@ window.DFWolLibrary = (function () {
               if (t && window.DFWolAudio) {
                 window.DFWolAudio.addToQueue({ title: t.title, subtitle: catName, audioUrl: t.url, lang, mode: "mp3" });
                 window.DFWolToast && window.DFWolToast("Ajouté à la file d'attente !");
+              }
+            });
+          });
+          bodyEl.querySelectorAll("[data-atr-playlist]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const t = tracks[Number(btn.getAttribute("data-atr-playlist"))];
+              if (t && window.DFWolStudy) {
+                window.DFWolStudy.openAddToPlaylistModal({
+                  kind: "audio",
+                  title: t.title,
+                  subtitle: catName,
+                  audioUrl: t.url,
+                  lang
+                });
               }
             });
           });
@@ -739,17 +828,281 @@ window.DFWolLibrary = (function () {
   }
 
   // ==========================================================================
+  // 4b. Onglet ACTUALITÉS & NOUVEAUTÉS JW.org (Flux RSS officiels)
+  // ==========================================================================
+
+  async function openNewsArticleInApp(item, lang = "fr") {
+    if (!item) return;
+    if (item.link && /\/wol\//i.test(item.link)) {
+      window.DFWolReader && window.DFWolReader.openArticleInApp(item.link, { lang });
+      return;
+    }
+
+    const fallbackOpen = () => {
+      const html = `
+        ${item.image ? `<figure class="jw-figure-card"><img src="${esc(item.image)}" alt="" class="jw-figure-img" referrerpolicy="no-referrer" /></figure>` : ""}
+        <p>${esc(item.description || "")}</p>
+        ${item.link ? `<p><a href="${esc(item.link)}" target="_blank" rel="noopener" data-allow-external="1" class="btn-secondary btn-sm">🌐 Ouvrir sur JW.org ↗</a></p>` : ""}
+      `;
+      const paras = [{ pid: "np-0", text: cleanStr(`${item.title}. ${item.description || ""}`) }];
+      window.DFWolReader &&
+        window.DFWolReader.openParsedArticleObject({
+          url: item.link || `news://${Date.now()}`,
+          docId: null,
+          lang,
+          title: item.title || "Actualité JW.org",
+          citation: item.section || "JW.org Actualités",
+          articleClasses: "jwac",
+          hasNativeHeader: false,
+          html,
+          paragraphs: paras,
+          plainText: paras[0].text
+        });
+    };
+
+    if (!item.link) {
+      fallbackOpen();
+      return;
+    }
+
+    window.DFWolToast && window.DFWolToast("⏳ Chargement de l'article…");
+    try {
+      const res = await window.DFWolNet.fetchWolHtml(item.link, { skipValidation: true });
+      const doc = new DOMParser().parseFromString(res.html, "text/html");
+      const contentEl =
+        doc.querySelector("article .articleBodyTxt") ||
+        doc.querySelector(".docSubContent") ||
+        doc.querySelector("article") ||
+        doc.querySelector("main");
+      if (!contentEl) {
+        fallbackOpen();
+        return;
+      }
+
+      const clone = contentEl.cloneNode(true);
+      clone.querySelectorAll("script, style, noscript, iframe, object, embed, form, meta, link").forEach((el) => el.remove());
+      clone.querySelectorAll("*").forEach((el) => {
+        Array.from(el.attributes).forEach((attr) => {
+          if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+        });
+      });
+      clone.querySelectorAll("img").forEach((img) => {
+        const s = img.getAttribute("src") || img.getAttribute("data-src") || "";
+        if (s) {
+          const abs = s.startsWith("/") ? `https://www.jw.org${s}` : s;
+          img.setAttribute("src", toProxiedImg(abs));
+          img.setAttribute("referrerpolicy", "no-referrer");
+          img.classList.add("jw-figure-img");
+        }
+      });
+      clone.querySelectorAll("a[href]").forEach((a) => {
+        const h = a.getAttribute("href") || "";
+        if (/^(?:javascript|vbscript|data):/i.test(h.trim())) {
+          a.removeAttribute("href");
+        } else if (h.startsWith("/")) {
+          a.setAttribute("href", `https://www.jw.org${h}`);
+        }
+      });
+
+      const paragraphs = [];
+      clone.querySelectorAll("p, h2, h3").forEach((p, idx) => {
+        const t = cleanStr(p.textContent || "");
+        if (t.length > 5) {
+          const pid = `nwp-${idx}`;
+          p.setAttribute("data-reader-pid", pid);
+          paragraphs.push({ pid, text: t });
+        }
+      });
+
+      if (paragraphs.length === 0) {
+        fallbackOpen();
+        return;
+      }
+
+      window.DFWolReader &&
+        window.DFWolReader.openParsedArticleObject({
+          url: item.link,
+          docId: null,
+          lang,
+          title: cleanStr(doc.querySelector("h1")?.textContent || item.title),
+          citation: item.section || "JW.org Actualités",
+          articleClasses: "jwac",
+          hasNativeHeader: false,
+          html: clone.innerHTML,
+          paragraphs,
+          plainText: paragraphs.map((p) => p.text).join("\n\n")
+        });
+    } catch (_) {
+      fallbackOpen();
+    }
+  }
+
+  function formatNewsDate(pubDate, lang = "fr") {
+    if (!pubDate) return "";
+    const d = new Date(pubDate);
+    if (Number.isNaN(d.getTime())) return pubDate;
+    return d.toLocaleDateString(lang === "en" ? "en-US" : "fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  async function fetchNewsBundles(lang = "fr") {
+    const isEn = lang === "en";
+    const newsroomUrl = isEn
+      ? "https://www.jw.org/en/news/jw/rss/NewsSubsectionRSSFeed/feed.xml"
+      : "https://www.jw.org/fr/actualites/jw/rss/NewsSubsectionRSSFeed/feed.xml";
+    const whatsNewUrl = isEn
+      ? "https://www.jw.org/en/whats-new/rss/WhatsNewWebArticles/feed.xml"
+      : "https://www.jw.org/fr/nouveautes/rss/WhatsNewWebArticles/feed.xml";
+
+    const [newsroom, whatsNew] = await Promise.all([
+      window.DFWolNet.fetchRssFeed(newsroomUrl).catch(() => []),
+      window.DFWolNet.fetchRssFeed(whatsNewUrl).catch(() => [])
+    ]);
+
+    const nrTagged = newsroom.slice(0, 12).map((it) => Object.assign({}, it, { section: isEn ? "JW Newsroom" : "Salle de presse JW" }));
+    const wnTagged = whatsNew.slice(0, 12).map((it) => Object.assign({}, it, { section: isEn ? "What's New" : "Nouveautés" }));
+    cachedNewsItems = [...nrTagged, ...wnTagged];
+    return { newsroom: nrTagged, whatsNew: wnTagged };
+  }
+
+  async function loadNewsView(lang = "fr") {
+    const container = document.getElementById("lib-news-content");
+    if (!container) return;
+    container.innerHTML = `<div class="loading-box">⏳ Chargement des actualités et nouveautés JW.org…</div>`;
+
+    try {
+      const { newsroom, whatsNew } = await fetchNewsBundles(lang);
+      loadedLangNews = lang;
+
+      if (!newsroom.length && !whatsNew.length) {
+        container.innerHTML = `<div class="empty-state"><p>Impossible de joindre les flux RSS JW.org pour le moment.</p></div>`;
+        return;
+      }
+
+      const renderSection = (heading, items, offsetIdx) => {
+        if (!items.length) return "";
+        return `
+          <div class="news-section-block">
+            <h2 class="jwl-media-section-title">${esc(heading)} (${items.length})</h2>
+            <div class="news-feed-grid">
+              ${items
+                .map((it, idx) => {
+                  const globalIdx = offsetIdx + idx;
+                  return `
+                    <article class="news-card">
+                      ${it.image ? `<img src="${esc(it.image)}" alt="" class="news-card-img" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+                      <div class="news-card-body">
+                        <div class="news-card-meta">
+                          <span class="badge badge-blue">${esc(it.section)}</span>
+                          <small>${esc(formatNewsDate(it.pubDate, lang))}</small>
+                        </div>
+                        <h3>${esc(it.title)}</h3>
+                        ${it.description ? `<p>${esc(it.description.slice(0, 180))}${it.description.length > 180 ? "…" : ""}</p>` : ""}
+                        <div class="btn-group">
+                          <button type="button" class="btn-primary btn-xs" data-news-open="${globalIdx}">📖 Lire</button>
+                          <button type="button" class="btn-secondary btn-xs" data-news-tts="${globalIdx}">🗣️ Écouter</button>
+                          <button type="button" class="btn-ghost btn-xs" data-news-share="${globalIdx}">🔗</button>
+                        </div>
+                      </div>
+                    </article>
+                  `;
+                })
+                .join("")}
+            </div>
+          </div>
+        `;
+      };
+
+      const allCombined = [...newsroom, ...whatsNew];
+      cachedNewsItems = allCombined;
+      container.innerHTML =
+        renderSection(lang === "en" ? "📰 JW Newsroom" : "📰 Actualités JW.org", newsroom, 0) +
+        renderSection(lang === "en" ? "🆕 What's New" : "🆕 Nouveautés JW.org", whatsNew, newsroom.length);
+
+      container.querySelectorAll("[data-news-open]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = cachedNewsItems[Number(btn.getAttribute("data-news-open"))];
+          if (item) openNewsArticleInApp(item, lang);
+        });
+      });
+      container.querySelectorAll("[data-news-tts]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = cachedNewsItems[Number(btn.getAttribute("data-news-tts"))];
+          if (item && window.DFWolAudio) {
+            window.DFWolAudio.playTrack({
+              title: item.title,
+              subtitle: item.section,
+              text: `${item.title}. ${item.description || ""}`,
+              lang,
+              mode: "tts"
+            });
+          }
+        });
+      });
+      container.querySelectorAll("[data-news-share]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = cachedNewsItems[Number(btn.getAttribute("data-news-share"))];
+          if (item && window.DFWolStudy) {
+            window.DFWolStudy.safeCopyText(`${item.title}\n${item.link}`, "Lien d'actualité copié !");
+          }
+        });
+      });
+    } catch (err) {
+      container.innerHTML = `<p class="card-helper-text">⚠️ ${esc(err.message)}</p>`;
+    }
+  }
+
+  async function loadHomeNewsPreview(lang = "fr") {
+    const container = document.getElementById("dash-news-list");
+    if (!container) return;
+    if (loadedLangHomeNews === lang && cachedNewsItems.length > 0) return;
+    container.innerHTML = `<p class="card-helper-text">Chargement des actualités JW.org…</p>`;
+    try {
+      const { newsroom, whatsNew } = await fetchNewsBundles(lang);
+      loadedLangHomeNews = lang;
+      const topItems = [...newsroom.slice(0, 2), ...whatsNew.slice(0, 2)];
+      if (!topItems.length) {
+        container.innerHTML = `<p class="card-helper-text">Actualités indisponibles hors-ligne.</p>`;
+        return;
+      }
+      container.innerHTML = topItems
+        .map(
+          (it, idx) => `
+          <button type="button" class="recent-item-btn" data-home-news-idx="${idx}">
+            <div>
+              <strong>${esc(it.title)}</strong>
+              <div><small>${esc(it.section)} • ${esc(formatNewsDate(it.pubDate, lang))}</small></div>
+            </div>
+            <span>›</span>
+          </button>
+        `
+        )
+        .join("");
+
+      container.querySelectorAll("[data-home-news-idx]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const item = topItems[Number(btn.getAttribute("data-home-news-idx"))];
+          if (item) openNewsArticleInApp(item, lang);
+        });
+      });
+    } catch (_) {
+      container.innerHTML = `<p class="card-helper-text">Actualités disponibles une fois connecté.</p>`;
+    }
+  }
+
+  // ==========================================================================
   // 5. Navigation sous-onglets Bibliothèque
   // ==========================================================================
 
   function setLibraryView(subtab = "publications") {
     activeSubtab = subtab;
-    const views = ["publications", "videos", "audio", "downloads", "search"];
+    const views = ["publications", "videos", "audio", "news", "downloads", "search"];
     views.forEach((v) => {
       document.getElementById(`lib-view-${v}`)?.classList.toggle("hidden", v !== subtab);
     });
     document.querySelectorAll("[data-lib-subtab]").forEach((btn) => {
-      btn.classList.toggle("active", btn.getAttribute("data-lib-subtab") === subtab);
+      const isAct = btn.getAttribute("data-lib-subtab") === subtab;
+      btn.classList.toggle("active", isAct);
+      btn.setAttribute("aria-selected", String(isAct));
     });
 
     const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
@@ -763,6 +1116,8 @@ window.DFWolLibrary = (function () {
       window.DFWolVideo.ensureLoadedForLang(lang);
     } else if (subtab === "audio" && loadedLangAudio !== lang) {
       loadAudioCategories(lang);
+    } else if (subtab === "news" && loadedLangNews !== lang) {
+      loadNewsView(lang);
     } else if (subtab === "downloads") {
       renderDownloadsView();
     }
@@ -771,7 +1126,10 @@ window.DFWolLibrary = (function () {
   function refreshForLanguage(lang = "fr") {
     loadedLangPubs = null;
     loadedLangAudio = null;
+    loadedLangNews = null;
+    loadedLangHomeNews = null;
     setLibraryView(activeSubtab);
+    loadHomeNewsPreview(lang);
   }
 
   function init() {
@@ -791,21 +1149,43 @@ window.DFWolLibrary = (function () {
 
     document.getElementById("btn-lib-pub-back")?.addEventListener("click", () => {
       const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
-      renderPublicationsRoot(lang);
+      pubDrillStack.pop();
+      if (pubDrillStack.length === 0) {
+        renderPublicationsRoot(lang);
+      } else {
+        const prev = pubDrillStack[pubDrillStack.length - 1];
+        const titleEl = document.getElementById("lib-pub-drill-title");
+        const bodyEl = document.getElementById("lib-pub-drill-body");
+        if (titleEl) titleEl.textContent = prev.title;
+        if (bodyEl && prev.items) renderPubDrillItems(bodyEl, prev.items, lang);
+      }
     });
 
     const handleAudioCatClick = (e) => {
       const btn = e.target.closest("[data-audio-cat]");
       if (!btn) return;
       const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
-      openAudioCategory(btn.getAttribute("data-audio-cat"), btn.getAttribute("data-audio-cat-name"), lang);
+      openAudioCategory(btn.getAttribute("data-audio-cat"), btn.getAttribute("data-audio-cat-name"), lang, true);
     };
     document.getElementById("lib-audio-list")?.addEventListener("click", handleAudioCatClick);
     document.getElementById("lib-audio-drill-body")?.addEventListener("click", handleAudioCatClick);
 
     document.getElementById("btn-lib-audio-back")?.addEventListener("click", () => {
       const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
-      loadAudioCategories(lang);
+      audioDrillStack.pop();
+      if (audioDrillStack.length === 0) {
+        loadAudioCategories(lang);
+      } else {
+        const prev = audioDrillStack[audioDrillStack.length - 1];
+        openAudioCategory(prev.catKey, prev.catName, lang, false);
+      }
+    });
+
+    document.getElementById("audio-song-jump-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const inp = document.getElementById("audio-song-jump-input");
+      const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
+      if (inp) jumpToSongbookTrack(inp.value, lang);
     });
 
     document.getElementById("btn-lib-top-search")?.addEventListener("click", () => {
@@ -821,6 +1201,8 @@ window.DFWolLibrary = (function () {
     init,
     setLibraryView,
     refreshForLanguage,
+    loadNewsView,
+    loadHomeNewsPreview,
     saveArticleOffline,
     getOfflineArticle,
     listOfflineArticles,

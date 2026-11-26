@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker optionnel pour héberger un proxy CORS dédié (+ Edge Neural TTS /api/tts)
  * pour votre PWA DFWol.
- * Déployez ce fichier sur Cloudflare Workers, puis collez son URL dans DFWol -> Widget & Atelier.
+ * Déployez ce fichier sur Cloudflare Workers, puis collez son URL dans DFWol -> Étude individuelle → Paramètres.
  */
 const ALLOWED_HOSTS = new Set([
   "wol.jw.org",
@@ -214,9 +214,14 @@ async function synthesizeEdgeTtsWorker(text, voice, lang, rate) {
 
   return await new Promise((resolve, reject) => {
     const chunks = [];
+    const timer = setTimeout(() => {
+      try { ws.close(); } catch {}
+      reject(new Error("Edge TTS timeout"));
+    }, 20000);
     ws.addEventListener("message", (evt) => {
       if (typeof evt.data === "string") {
         if (evt.data.includes("Path:turn.end")) {
+          clearTimeout(timer);
           try { ws.close(); } catch {}
           const total = chunks.reduce((s, c) => s + c.length, 0);
           const merged = new Uint8Array(total);
@@ -232,7 +237,10 @@ async function synthesizeEdgeTtsWorker(text, voice, lang, rate) {
         }
       }
     });
-    ws.addEventListener("error", () => reject(new Error("WebSocket error")));
+    ws.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("WebSocket error"));
+    });
   });
 }
 
@@ -294,19 +302,28 @@ export default {
       return new Response(`Forbidden host: ${target.hostname}`, { status: 403 });
     }
 
-    const upstream = await fetch(target.toString(), {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DFWolStudio/3.0" },
-      redirect: "follow"
-    });
+    try {
+      const upstream = await fetch(target.toString(), {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) DFWolStudio/3.0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(12000)
+      });
 
-    const headers = new Headers(upstream.headers);
-    headers.set("Access-Control-Allow-Origin", "*");
-    headers.set("Access-Control-Expose-Headers", "X-Final-Url");
-    headers.set("X-Final-Url", upstream.url || target.toString());
+      const headers = new Headers(upstream.headers);
+      headers.set("Access-Control-Allow-Origin", "*");
+      headers.set("Access-Control-Expose-Headers", "X-Final-Url");
+      headers.set("X-Final-Url", upstream.url || target.toString());
 
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers
-    });
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers
+      });
+    } catch (err) {
+      const isTimeout = err && (err.name === "TimeoutError" || err.name === "AbortError");
+      return new Response((isTimeout ? "Upstream Proxy Timeout: " : "Proxy Error: ") + err.message, {
+        status: isTimeout ? 504 : 502,
+        headers: { "Access-Control-Allow-Origin": "*" }
+      });
+    }
   }
 };
