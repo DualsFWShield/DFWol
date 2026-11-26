@@ -351,6 +351,7 @@ window.DFWolLibrary = (function () {
 
         if (links.length > 0) {
           pubDrillStack = [{ title: label, items: links, url: targetUrl }];
+          window.DFWolPushHistoryMarker?.("pub-drill");
           renderPubDrillItems(bodyEl, links, lang);
           return;
         }
@@ -371,6 +372,7 @@ window.DFWolLibrary = (function () {
       }));
       if (items.length > 0) {
         pubDrillStack = [{ title: label, items, url: targetUrl || "" }];
+        window.DFWolPushHistoryMarker?.("pub-drill");
         renderPubDrillItems(bodyEl, items, lang);
       } else {
         bodyEl.innerHTML = `<p class="card-helper-text">Aucune publication trouvée dans cette catégorie.</p>`;
@@ -412,6 +414,7 @@ window.DFWolLibrary = (function () {
       btn.addEventListener("click", () => {
         const u = btn.getAttribute("data-open-pub-url");
         if (/\/wol\/(?:lv|library|publication)\//i.test(u)) {
+          window.DFWolPushHistoryMarker?.("pub-subdrill");
           openWolDirectoryUrl(u, btn.querySelector("strong")?.textContent || "Publications", lang);
         } else {
           window.DFWolReader && window.DFWolReader.openArticleInApp(u, { lang });
@@ -566,7 +569,10 @@ window.DFWolLibrary = (function () {
     const bodyEl = document.getElementById("lib-audio-drill-body");
     if (!drillEl || !bodyEl) return;
 
-    if (pushStack) audioDrillStack.push({ catKey, catName });
+    if (pushStack) {
+      audioDrillStack.push({ catKey, catName });
+      window.DFWolPushHistoryMarker?.("audio-drill");
+    }
     listEl?.classList.add("hidden");
     drillEl.classList.remove("hidden");
     if (titleEl) titleEl.textContent = catName || "Audio";
@@ -889,8 +895,14 @@ window.DFWolLibrary = (function () {
         return;
       }
 
-      const docIdMatch = ((articleEl?.className || "") + " " + (doc.body?.className || "")).match(/\bdocId-(\d+)\b/);
-      const extractedDocId = docIdMatch ? docIdMatch[1] : (articleEl?.getAttribute("data-docid") || null);
+      const artCls = articleEl?.className || "";
+      const docIdMatch = artCls.match(/\bdocId-(\d+)\b/) || (doc.body?.className || "").match(/\bdocId-(\d+)\b/);
+      const extractedDocId =
+        docIdMatch?.[1] ||
+        articleEl?.getAttribute("data-docid") ||
+        window.DFWolNet.extractDocIdFromUrlOrHtml(item.link, res.html) ||
+        null;
+      const pubMeta = window.DFWolNet?.extractPubMetaFromHtml?.(res.html) || { docId: extractedDocId, pub: null, issue: null };
 
       const clone = contentEl.cloneNode(true);
       clone.querySelectorAll("script, style, noscript, iframe, object, embed, form, meta, link, nav, .pageNav, .jsSocialShare, .shareLinks, .audioPlayer").forEach((el) => el.remove());
@@ -942,9 +954,12 @@ window.DFWolLibrary = (function () {
       clone.querySelectorAll("p, h2, h3, h4, li, blockquote, figcaption").forEach((p, idx) => {
         const t = cleanStr(p.textContent || "");
         if (t.length > 3) {
-          const pid = `nwp-${idx}`;
+          const rawMeps = p.getAttribute("data-pid") || p.id?.match(/^p(\d+)$/)?.[1] || "";
+          const mepsPid = rawMeps ? Number(rawMeps) : null;
+          const pid = p.getAttribute("data-pid") || p.id || `nwp-${idx}`;
           p.setAttribute("data-reader-pid", pid);
-          paragraphs.push({ pid, text: t });
+          if (mepsPid) p.setAttribute("data-meps-pid", String(mepsPid));
+          paragraphs.push({ pid, mepsPid, text: t });
         }
       });
 
@@ -957,6 +972,7 @@ window.DFWolLibrary = (function () {
         window.DFWolReader.openParsedArticleObject({
           url: item.link,
           docId: extractedDocId,
+          pubMeta,
           lang,
           title: cleanStr(doc.querySelector("h1")?.textContent || item.title),
           citation: item.section || "JW.org Actualités",
@@ -1209,17 +1225,33 @@ window.DFWolLibrary = (function () {
       });
 
       container.querySelector("[data-play-jw-featured='0']")?.addEventListener("click", async () => {
-        window.DFWolToast && window.DFWolToast("⏳ Préparation de la lecture vocale…");
+        window.DFWolToast && window.DFWolToast("⏳ Préparation de la lecture audio…");
         await openNewsArticleInApp(hero, lang);
+        if (window.DFWolReader?.resolveCurrentArticleMp3) {
+          await window.DFWolReader.resolveCurrentArticleMp3();
+        }
         const curArt = window.DFWolReader?.getCurrentArticleData?.();
         if (curArt && window.DFWolAudio) {
-          window.DFWolAudio.playTrack({
-            title: curArt.title,
-            subtitle: hero.section,
-            paragraphs: curArt.paragraphs,
-            lang,
-            mode: "tts"
-          });
+          if (curArt.mp3Url) {
+            window.DFWolAudio.playTrack({
+              title: curArt.title,
+              subtitle: hero.section,
+              audioUrl: curArt.mp3Url,
+              mp3Markers: curArt.mp3Markers || null,
+              paragraphs: curArt.paragraphs,
+              docId: curArt.docId,
+              lang,
+              mode: "mp3"
+            });
+          } else {
+            window.DFWolAudio.playTrack({
+              title: curArt.title,
+              subtitle: hero.section,
+              paragraphs: curArt.paragraphs,
+              lang,
+              mode: "tts"
+            });
+          }
         }
       });
     } catch (_) {
@@ -1387,6 +1419,40 @@ window.DFWolLibrary = (function () {
     renderPublicationsRoot(lang);
   }
 
+  function goBackInTab() {
+    const vidStage = document.getElementById("video-player-stage");
+    if (activeSubtab === "videos" && vidStage && !vidStage.classList.contains("hidden")) {
+      const vidEl = document.getElementById("dfwol-video-el");
+      if (vidEl && !vidEl.paused) vidEl.pause();
+      vidStage.classList.add("hidden");
+      return true;
+    }
+    if (activeSubtab === "publications" && pubDrillStack.length > 0) {
+      document.getElementById("btn-lib-pub-back")?.click();
+      return true;
+    }
+    if (activeSubtab === "audio" && audioDrillStack.length > 0) {
+      document.getElementById("btn-lib-audio-back")?.click();
+      return true;
+    }
+    return false;
+  }
+
+  function resetToInitial() {
+    pubDrillStack = [];
+    audioDrillStack = [];
+    const vidStage = document.getElementById("video-player-stage");
+    if (vidStage && !vidStage.classList.contains("hidden")) {
+      const vidEl = document.getElementById("dfwol-video-el");
+      if (vidEl && !vidEl.paused) vidEl.pause();
+      vidStage.classList.add("hidden");
+    }
+    setLibraryView("publications", { skipNavPush: true });
+    const lang = window.DFWolGetLang ? window.DFWolGetLang() : "fr";
+    renderPublicationsRoot(lang);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   return {
     init,
     setLibraryView,
@@ -1399,6 +1465,12 @@ window.DFWolLibrary = (function () {
     listOfflineArticles,
     deleteOfflineArticle,
     renderDownloadsView,
+    goBackInTab,
+    resetToInitial,
+    isAtInitialState: () =>
+      activeSubtab === "publications" &&
+      pubDrillStack.length === 0 &&
+      document.getElementById("video-player-stage")?.classList.contains("hidden") !== false,
     getActiveSubtab: () => activeSubtab
   };
 })();

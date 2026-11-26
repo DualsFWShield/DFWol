@@ -316,7 +316,13 @@ public class NeuralTtsPlugin extends Plugin {
         return buf;
     }
 
-    private byte[] fetchEdgeNeuralMp3(String text, String voice, String lang, double rate, boolean allowRetry) throws Exception {
+    private static String sanitizePitch(String pitch) {
+        if (pitch == null) return "0%";
+        String trimmed = pitch.trim();
+        return trimmed.matches("^[+-]?\\d{1,2}%$") ? trimmed : "0%";
+    }
+
+    private byte[] fetchEdgeNeuralMp3(String text, String voice, String lang, double rate, String pitch, boolean allowRetry) throws Exception {
         String sec = generateSecMsGecV2();
         String muid = randomHex32();
         String connId = UUID.randomUUID().toString().replace("-", "");
@@ -374,7 +380,7 @@ public class NeuralTtsPlugin extends Plugin {
                             Date serverDate = sdf.parse(dateVal);
                             if (serverDate != null) {
                                 clockSkewSeconds += (serverDate.getTime() / 1000L) - (System.currentTimeMillis() / 1000L);
-                                return fetchEdgeNeuralMp3(text, voice, lang, rate, false);
+                                return fetchEdgeNeuralMp3(text, voice, lang, rate, pitch, false);
                             }
                         }
                     }
@@ -393,10 +399,12 @@ public class NeuralTtsPlugin extends Plugin {
             String xmlLang = "en".equalsIgnoreCase(lang) ? "en-US" : "fr-FR";
             int ratePct = (int) Math.round((rate - 1.0) * 100.0);
             String rateStr = (ratePct >= 0 ? "+" : "") + ratePct + "%";
-            String safeVoice = (voice == null || voice.isEmpty()) ? ("en".equalsIgnoreCase(lang) ? "en-US-EmmaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural") : voice;
+            String safePitch = sanitizePitch(pitch);
+            String prosodyAttrs = "rate='" + rateStr + "'".concat(!"0%".equals(safePitch) && !"+0%".equals(safePitch) && !"-0%".equals(safePitch) ? " pitch='" + safePitch + "'" : "");
+            String safeVoice = (voice == null || voice.isEmpty()) ? ("en".equalsIgnoreCase(lang) ? "en-US-AvaMultilingualNeural" : "fr-FR-VivienneMultilingualNeural") : voice;
             String reqId = UUID.randomUUID().toString().replace("-", "");
             String ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='" + xmlLang + "'>"
-                + "<voice name='" + escapeXml(safeVoice) + "'><prosody rate='" + rateStr + "'>"
+                + "<voice name='" + escapeXml(safeVoice) + "'><prosody " + prosodyAttrs + ">"
                 + escapeXml(text) + "</prosody></voice></speak>";
             String ssmlMsg = "X-RequestId:" + reqId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + ts + "\r\nPath:ssml\r\n\r\n" + ssml;
             sendWsText(out, random, ssmlMsg);
@@ -445,6 +453,7 @@ public class NeuralTtsPlugin extends Plugin {
         String text = call.getString("text", "");
         String voice = call.getString("voice", "fr-FR-VivienneMultilingualNeural");
         String lang = call.getString("lang", "fr");
+        String pitch = sanitizePitch(call.getString("pitch", "0%"));
         Double rateVal = call.getDouble("rate", 1.0);
         double rate = rateVal != null ? rateVal : 1.0;
 
@@ -455,7 +464,16 @@ public class NeuralTtsPlugin extends Plugin {
 
         executor.execute(() -> {
             try {
-                byte[] mp3 = fetchEdgeNeuralMp3(text, voice, lang, rate, true);
+                byte[] mp3 = null;
+                try {
+                    mp3 = fetchEdgeNeuralMp3(text, voice, lang, rate, pitch, true);
+                } catch (Exception firstErr) {
+                    if (!"0%".equals(pitch)) {
+                        mp3 = fetchEdgeNeuralMp3(text, voice, lang, rate, "0%", true);
+                    } else {
+                        throw firstErr;
+                    }
+                }
                 if (mp3 == null || mp3.length < 100) {
                     call.reject("Empty audio from Edge Neural TTS");
                     return;

@@ -3542,8 +3542,16 @@ button:not(:disabled):active,
   transition: background 0.2s ease;
 }
 
-/* Spiritual Brother — IA 100% Locale */
-.sb-header { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.8rem; }
+/* Spiritual Brother — Tchat IA 100% Local */
+.sb-chat-shell { display: flex; flex-direction: column; gap: 0.65rem; }
+.sb-chat-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.sb-header-id { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
 .sb-avatar {
   width: 44px;
   height: 44px;
@@ -3556,121 +3564,136 @@ button:not(:disabled):active,
   font-size: 1.35rem;
   flex-shrink: 0;
 }
-.sb-header h3 { margin: 0 0 0.15rem; font-size: 1.08rem; }
+.sb-header-id h3 { margin: 0 0 0.18rem; font-size: 1.05rem; }
+.sb-ctx-pill {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-card-elevated);
+  border: 1px solid var(--border-subtle);
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sb-chat-thread {
-  max-height: 290px;
+  min-height: 360px;
+  max-height: calc(100vh - 340px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.65rem;
-  border-radius: 10px;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  border-radius: 12px;
   background: var(--bg-card-elevated);
   border: 1px solid var(--border-subtle);
-  margin-bottom: 0.65rem;
 }
 .sb-chat-msg { display: flex; }
 .sb-chat-msg.is-user { justify-content: flex-end; }
 .sb-chat-bubble {
   max-width: 88%;
-  padding: 0.6rem 0.8rem;
-  border-radius: 10px;
-  font-size: 0.88rem;
-  line-height: 1.48;
+  padding: 0.72rem 0.92rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  line-height: 1.52;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
 }
 .sb-chat-msg.is-user .sb-chat-bubble {
   background: var(--jwl-purple-soft);
-  border-color: rgba(91, 70, 130, 0.3);
+  border-color: rgba(91, 70, 130, 0.35);
 }
-.sb-chat-form { display: flex; gap: 0.45rem; }
-.sb-chat-form input { flex: 1; min-width: 0; }
-.sb-skills-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.55rem;
-}
-.sb-skill-tile {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.6rem 0.7rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-subtle);
+.sb-quotes-stack { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.55rem; }
+.sb-verse-quote-card {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--jw-blue);
   background: var(--bg-card-elevated);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  border-radius: 6px;
+  font-size: 0.85rem;
 }
-.sb-skill-tile:hover { border-color: var(--jw-blue-link); transform: translateY(-1px); }
-.sb-skill-tile.active {
-  border-color: var(--jwl-purple);
-  background: var(--jwl-purple-soft);
+.sb-verse-quote-card strong { display: block; color: var(--jw-blue-link); margin-bottom: 0.2rem; }
+.sb-verse-quote-card p { margin: 0; }
+.sb-article-cards { display: flex; flex-direction: column; gap: 0.42rem; margin-top: 0.55rem; }
+.sb-article-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: var(--bg-card-elevated);
+  border: 1px solid var(--border-subtle);
 }
-.sb-skill-ico { font-size: 1.2rem; line-height: 1.2; flex-shrink: 0; }
-.sb-skill-tile strong { display: block; font-size: 0.83rem; line-height: 1.25; }
-.sb-skill-tile small { display: block; font-size: 0.74rem; color: var(--text-secondary); line-height: 1.3; margin-top: 0.18rem; }
-.sb-active-workspace {
-  margin-top: 1rem;
-  padding-top: 1rem;
+.sb-article-row strong { display: block; font-size: 0.83rem; line-height: 1.3; }
+.sb-article-row small { display: block; font-size: 0.74rem; color: var(--text-secondary); }
+.sb-quiz-card {
+  margin-top: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: var(--bg-card-elevated);
+  border: 1px solid var(--border-subtle);
+}
+.sb-bubble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
   border-top: 1px solid var(--border-subtle);
 }
-.sb-topics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 0.6rem;
-}
-.sb-mini-card {
-  padding: 0.7rem 0.8rem;
-  border-radius: 10px;
-  background: var(--bg-card-elevated);
-  border: 1px solid var(--border-subtle);
-}
-.sb-form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 0.55rem;
-}
-.sb-form-grid label { font-size: 0.8rem; font-weight: 600; display: flex; flex-direction: column; gap: 0.25rem; }
+.sb-followups { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+.sb-typing-dots { font-size: 0.85rem; color: var(--text-secondary); animation: sbPulse 1.1s ease-in-out infinite; }
+@keyframes sbPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.sb-chat-form { display: flex; gap: 0.5rem; align-items: stretch; }
+.sb-chat-form textarea { flex: 1; min-width: 0; resize: vertical; }
 .input-compact {
   width: 100%;
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.7rem;
   border-radius: 8px;
   border: 1px solid var(--border-input);
   background: var(--bg-input);
   color: var(--text-primary);
   font: inherit;
-  font-size: 0.86rem;
+  font-size: 0.88rem;
 }
 .input-compact:focus {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--jw-blue-pale);
 }
-.sb-code-preview {
-  padding: 0.55rem 0.75rem;
-  border-radius: 8px;
-  background: var(--bg-card-elevated);
-  border: 1px dashed var(--border-subtle);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.82rem;
-}
-.sb-timer-box {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  padding: 0.75rem;
-  border-radius: 10px;
-  background: var(--bg-card-elevated);
-  border: 1px solid var(--border-subtle);
-}
 .sb-quiz-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.45rem; }
 .sb-quiz-opt.is-correct { background: #10b981 !important; color: #fff !important; border-color: #10b981 !important; }
 .sb-quiz-opt.is-wrong { background: #ef4444 !important; color: #fff !important; border-color: #ef4444 !important; }
+
+/* Désactivation sélection native & surlignage tactile fluide */
+#reader-article-body,
+#bible-reader-body,
+.mobile-bottom-nav,
+.jw-header,
+.bible-jwl-topbar,
+.text-selection-toolbar {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+#reader-article-body input,
+#reader-article-body textarea,
+#reader-article-body .gen-field,
+#reader-article-body .gen-field * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+#reader-article-body.is-hl-dragging,
+#bible-reader-body.is-hl-dragging {
+  touch-action: none !important;
+}
+.jw-hl.is-live-hl {
+  outline: 2px solid rgba(91, 70, 130, 0.45);
+  border-radius: 3px;
+}
 
 /* Responsive Mobile Final Cascade (ne jamais écraser plus haut) */
 @media (max-width: 767px) {
@@ -3689,17 +3712,17 @@ button:not(:disabled):active,
     top: auto !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    max-width: calc(100vw - 1rem);
-    padding: 0.42rem 0.6rem;
-    gap: 0.35rem;
+    max-width: calc(100vw - 0.8rem);
+    padding: 0.36rem 0.5rem;
+    gap: 0.24rem;
     flex-wrap: nowrap;
-    overflow-x: auto;
   }
   body.has-audio-bar .text-selection-toolbar {
     bottom: calc(130px + env(safe-area-inset-bottom)) !important;
   }
-  .hl-dot { width: 28px; height: 28px; flex-shrink: 0; }
-  .text-selection-toolbar .sel-tb-btn { width: 34px; height: 34px; flex-shrink: 0; }
+  .hl-dot { width: 25px; height: 25px; flex-shrink: 0; }
+  .text-selection-toolbar .sel-tb-btn { width: 31px; height: 31px; flex-shrink: 0; }
   .global-study-panel { width: 100vw; }
+  .sb-chat-thread { min-height: 290px; max-height: calc(100vh - 320px); }
   .sb-chat-form { flex-direction: column; }
 }

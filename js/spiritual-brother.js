@@ -1,41 +1,63 @@
 /* ==========================================================================
-   DFWol Studio — « Spiritual Brother » : IA Spirituelle 100 % Locale (Hors-ligne)
-   Zéro clé API requise · Suggestions d'articles & versets · 32 Capacités Actives
+   DFWol Studio — « Spiritual Brother » : Tchat IA Spirituel 100 % Local
+   Zéro clé API · Mémoire contextuelle · Recherche Bible & WOL en direct
    ========================================================================== */
 
 window.DFWolBrother = (function () {
   "use strict";
 
-  const BROTHER_STATE_KEY = "dfwol_spiritual_brother_v1";
+  const CHAT_STORAGE_KEY = "dfwol_brother_chat_v2";
   let uiBound = false;
-  let activeCategory = "all";
-  let activeSkillId = "chat";
+  let isThinking = false;
   let chatHistory = [];
-  let flashcardIdx = 0;
-  let flashcardStep = 0; // 0 = caché, 1 = indice, 2 = complet
-  let quizState = { idx: 0, score: 0, answered: false, selected: -1 };
-  let rehearsalTimer = { running: false, startedAt: 0, elapsedMs: 0, intervalId: null };
+  let convContext = {
+    lastTopicId: null,
+    lastRefs: [],
+    lastQuery: "",
+    lastBookNum: null,
+    lastCharName: null
+  };
 
   function esc(str) {
     return window.DFWolSearch ? window.DFWolSearch.escapeHtml(str) : String(str || "");
+  }
+
+  function cleanStr(str) {
+    return String(str || "").replace(/\s+/g, " ").trim();
+  }
+
+  function norm(str) {
+    return String(str || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
   }
 
   function lang() {
     return window.DFWolGetLang ? window.DFWolGetLang() : "fr";
   }
 
-  function loadBrotherPrefs() {
+  function loadPersistedChat() {
     try {
-      return JSON.parse(localStorage.getItem(BROTHER_STATE_KEY) || "{}");
-    } catch (_) {
-      return {};
-    }
+      const saved = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || "null");
+      if (saved && Array.isArray(saved.messages)) {
+        chatHistory = saved.messages.slice(-40);
+      }
+      if (saved && saved.context && typeof saved.context === "object") {
+        convContext = Object.assign(convContext, saved.context);
+      }
+    } catch (_) {}
   }
 
-  function saveBrotherPrefs(patch) {
+  function savePersistedChat() {
     try {
-      const cur = loadBrotherPrefs();
-      localStorage.setItem(BROTHER_STATE_KEY, JSON.stringify(Object.assign({}, cur, patch)));
+      localStorage.setItem(
+        CHAT_STORAGE_KEY,
+        JSON.stringify({
+          messages: chatHistory.slice(-40),
+          context: convContext
+        })
+      );
     } catch (_) {}
   }
 
@@ -76,1452 +98,1008 @@ window.DFWolBrother = (function () {
     window.DFWolAudio.playTrack({
       title: title || "Spiritual Brother",
       subtitle: "Lecture vocale naturelle",
-      text,
+      text: String(text).replace(/\*\*([^*]+)\*\*/g, "$1").replace(/[#*_`]/g, ""),
       lang: lang(),
       mode: "tts"
     });
   }
 
-  function renderScriptureChips(refs) {
-    return (refs || [])
-      .map(
-        (ref) =>
-          `<button type="button" class="pill-btn pill-xs sb-verse-chip" data-sb-open-ref="${esc(ref)}">📖 ${esc(ref)}</button>`
-      )
-      .join("");
-  }
-
   // ==========================================================================
-  // Bases de Connaissances Hors-Ligne Enrichies
+  // Base de Connaissances Bibliques & Spirituelles Locale
   // ==========================================================================
 
   const TOPIC_MAP = [
     {
       id: "anxiete",
-      keywords: ["anxiet", "stress", "inquiet", "peur", "angoiss", "triste", "worry", "anxious", "fear", "paix"],
-      title: "Apaiser l'inquiétude & retrouver la paix",
-      verses: ["Philippiens 4:6, 7", "1 Pierre 5:7", "Matthieu 6:34", "Psaume 55:22", "Isaïe 41:10"],
-      queries: ['"ne vous inquiétez de rien" paix', 'anxiété prière confiance Jéhovah', '"déchargez-vous sur lui"'],
-      advice: "Dépose précisément ce qui pèse sur ton cœur dans la prière, un jour à la fois. Jéhovah promet une paix qui dépasse tout entendement pour protéger ton cœur et ton esprit."
+      keywords: ["anxiet", "stress", "inquiet", "peur", "angoiss", "paniqu", "tracas", "worry", "anxious", "fear", "paix d'esprit", "serenite"],
+      title: "Apaiser l'inquiétude et retrouver la paix intérieure",
+      verses: ["Philippiens 4:6, 7", "1 Pierre 5:7", "Matthieu 6:34", "Psaume 55:22", "Isaïe 41:10", "Psaume 94:19"],
+      queries: ['"ne vous inquiétez de rien" paix', 'anxiété prière confiance Jéhovah', '"pensées troublantes" consolation'],
+      advice: "Dépose avec précision ce qui pèse sur ton cœur dans la prière, un jour à la fois. En **Philippiens 4:6, 7**, Jéhovah ne promet pas forcément la disparition immédiate du problème, mais une **paix qui dépasse toute pensée** pour garder ton cœur comme une sentinelle.",
+      illustration: "Un voyageur qui porte son lourd sac tout en étant déjà monté dans le train s'épuise inutilement ; **1 Pierre 5:7** nous invite à poser littéralement le fardeau sur les épaules de Jéhovah."
     },
     {
       id: "decouragement",
-      keywords: ["decourag", "fatigue", "epuis", "triste", "larm", "deprim", "seul", "courage", "discourag", "sad", "tired"],
-      title: "Reprendre courage quand la force manque",
-      verses: ["Psaume 34:18", "2 Corinthiens 4:16", "Isaïe 40:29-31", "Galates 6:9", "Hébreux 6:10"],
-      queries: ['"cœur brisé" consolé Psaume 34', 'persévérer découragement espérance', '"puissance qui dépasse la normale"'],
-      advice: "Même les fidèles comme Élie ont eu besoin de repos et de réconfort. Jéhovah remarque chaque effort fidèle et redonne de la vigueur à celui qui est fatigué."
+      keywords: ["decourag", "fatigue", "epuis", "triste", "larm", "deprim", "baisser les bras", "vide", "lassitude", "discourag", "sad", "tired"],
+      title: "Reprendre courage quand la force vient à manquer",
+      verses: ["Psaume 34:18", "2 Corinthiens 4:16", "Isaïe 40:29-31", "Galates 6:9", "Hébreux 6:10", "1 Rois 19:5-8"],
+      queries: ['"cœur brisé" Psaume 34:18', 'persévérer découragement espérance', '"puissance qui dépasse la normale"'],
+      advice: "Même des serviteurs fidèles comme Élie ont connu l'épuisement total (**1 Rois 19**). Jéhovah n'attend pas l'impossible : il remarque chaque petit pas fidèle (**Hébreux 6:10**) et renouvelle notre force jour après jour.",
+      illustration: "Comme un coureur de fond qui ralentit dans une côte sans quitter le tracé, notre fidélité se mesure sur l'endurance, pas sur l'absence de fatigue."
     },
     {
       id: "pardon",
-      keywords: ["pardon", "culpabil", "faute", "peche", "remord", "forgiv", "guilt", "sin", "misericord"],
-      title: "Comprendre le pardon & surmonter la culpabilité",
-      verses: ["Psaume 86:5", "Isaïe 1:18", "1 Jean 1:9", "Colossiens 3:13", "Psaume 103:12"],
-      queries: ['"prêt à pardonner" Psaume 86', 'surmonter culpabilité miséricorde', '"aussi loin que l\'est est de l\'ouest"'],
-      advice: "Jéhovah connaît notre poussière et ne garde pas rancune éternellement. Quand le repentir est sincère, sa miséricorde efface la dette complètement."
+      keywords: ["pardon", "culpabil", "faute", "peche", "remord", "rancune", "reconcil", "forgiv", "guilt", "sin", "misericord", "regret"],
+      title: "Le pardon de Jéhovah et le pardon envers autrui",
+      verses: ["Psaume 86:5", "Isaïe 1:18", "1 Jean 1:9", "Colossiens 3:13", "Psaume 103:12", "Éphésiens 4:32"],
+      queries: ['"prêt à pardonner" Psaume 86', 'surmonter culpabilité miséricorde', '"aussi loin que le levant"'],
+      advice: "Quand le repentir est sincère, Jéhovah efface nos fautes « aussi loin que le levant est du couchant » (**Psaume 103:12**). S'accabler encore après avoir prié sincèrement revient à douter de la valeur de la rançon du Christ (**1 Jean 3:19, 20**).",
+      illustration: "Pardonner à autrui ne signifie pas approuver le mal subi, mais décider de ne plus retenir la dette contre son frère."
     },
     {
       id: "famille",
-      keywords: ["famille", "mariag", "couple", "enfant", "parent", "epoux", "epouse", "family", "marriage", "child"],
-      title: "Vie de famille heureuse & communication",
-      verses: ["Éphésiens 5:28, 33", "Colossiens 3:18-21", "Proverbes 15:1", "Ecclésiaste 4:9, 12", "Deutéronome 6:6, 7"],
-      queries: ['vie de famille communication respect', '"corde triple" mariage', '"parler avec douceur" Proverbes 15:1'],
-      advice: "Un foyer solide se bâtit par l'écoute patiente, le respect mutuel et des habitudes spirituelles régulières."
+      keywords: ["famille", "mariag", "couple", "enfant", "parent", "epoux", "epouse", "ado", "culte familial", "foyer", "family", "marriage", "child"],
+      title: "Harmonie familiale, couple et éducation des enfants",
+      verses: ["Éphésiens 5:28, 33", "Colossiens 3:18-21", "Proverbes 15:1", "Ecclésiaste 4:9, 12", "Deutéronome 6:6, 7", "Éphésiens 6:4"],
+      queries: ['vie de famille communication respect', '"corde triple" mariage', '"parler avec douceur" famille'],
+      advice: "Une famille unie repose sur l'écoute bienveillante, la patience et des moments spirituels joyeux. **Proverbes 15:1** montre qu'une réponse douce désamorce bien des tensions avant qu'elles n'enflent.",
+      illustration: "Une corde à trois brins (**Ecclésiaste 4:12**) reste souple tout en supportant une tension immense lorsque Jéhovah est le troisième brin du foyer."
     },
     {
       id: "deuil",
-      keywords: ["deuil", "mort", "resurrect", "perte", "disparu", "grief", "death", "mourning", "paradise"],
-      title: "Espérance de la résurrection & consolation",
-      verses: ["Jean 5:28, 29", "Révélation 21:3, 4", "Jean 11:25", "Psaume 147:3", "2 Corinthiens 1:3, 4"],
-      queries: ['résurrection espérance deuil consolation', '"essuiera toute larme" Révélation 21', 'où sont les morts Bible'],
-      advice: "Jésus lui-même a pleuré devant la tombe de Lazare. La résurrection est une promesse garantie par le Dieu qui ne peut mentir."
+      keywords: ["deuil", "mort", "resurrect", "perte", "disparu", "tombe", "grief", "death", "mourning", "paradise"],
+      title: "Consolation dans le deuil et espérance de la résurrection",
+      verses: ["Jean 5:28, 29", "Révélation 21:3, 4", "Jean 11:25, 35", "Psaume 147:3", "2 Corinthiens 1:3, 4", "Job 14:14, 15"],
+      queries: ['résurrection espérance deuil consolation', '"essuiera toute larme" Révélation 21', 'Lazare espérance résurrection'],
+      advice: "Jésus lui-même a laissé couler ses larmes devant le tombeau de Lazare (**Jean 11:35**). Pleurer n'est jamais un manque de foi. En **Job 14:14, 15**, Jéhovah dit qu'il *languit* après l'œuvre de ses mains pour la ramener à la vie.",
+      illustration: "Jésus a comparé la mort à un sommeil profond sans rêves : celui qui dort ne souffre pas et se réveillera comme après une simple nuit."
     },
     {
       id: "priere",
       keywords: ["prier", "priere", "exauc", "ecout", "pray", "prayer"],
-      title: "Enrichir ses prières personnelles",
-      verses: ["1 Jean 5:14", "Psaume 62:8", "Matthieu 6:9-13", "Romains 12:12", "Proverbes 15:8"],
-      queries: ['"répandez votre cœur" prière', 'comment améliorer nos prières', 'prier avec persévérance foi'],
-      advice: "Parle à Jéhovah comme à un Père bienveillant : nomme tes craintes, remercie-le pour trois bienfaits précis et demande sa sagesse."
+      title: "Rendre ses prières plus profondes et personnelles",
+      verses: ["1 Jean 5:14", "Psaume 62:8", "Matthieu 6:9-13", "Romains 12:12", "Proverbes 15:8", "Philippiens 4:6"],
+      queries: ['"répandez votre cœur" prière', 'comment améliorer nos prières', 'prière modèle Matthieu 6'],
+      advice: "Parle à Jéhovah comme à un Père proche : commence par **louer** qui il est, **remercie-le** pour 2 ou 3 choses précises de ta journée, exprime **tes besoins sincères** et prie au nom de Jésus (**Jean 14:13**).",
+      illustration: "Un dialogue vrai avec un ami précieux demande d'ouvrir son cœur sans formules figées, tout en écoutant sa réponse dans sa Parole."
     },
     {
       id: "jeunesse",
-      keywords: ["jeune", "ecole", "ami", "tentation", "reseaux", "avenir", "youth", "school", "peer"],
-      title: "Décisions sages pour les jeunes & l'avenir",
-      verses: ["Ecclésiaste 12:1", "1 Timothée 4:12", "Proverbes 13:20", "Psaume 119:9", "2 Timothée 2:22"],
-      queries: ['jeunes pressions camarades fidélité', '"souviens-toi de ton Grand Créateur"', '"modèle pour les fidèles"'],
-      advice: "Tes choix d'aujourd'hui dessinent la paix de demain. Choisis des amis qui aiment ce que tu veux devenir."
+      keywords: ["jeune", "ecole", "ami", "tentation", "reseaux", "avenir", "etudes", "camarad", "youth", "school", "peer"],
+      title: "Force morale pour les jeunes face aux pressions",
+      verses: ["Ecclésiaste 12:1", "1 Timothée 4:12", "Proverbes 13:20", "Psaume 119:9", "2 Timothée 2:22", "1 Corinthiens 15:33"],
+      queries: ['jeunes pressions camarades fidélité', '"souviens-toi de ton Grand Créateur"', '"modèle pour les fidèles" jeunes'],
+      advice: "Tes choix d'aujourd'hui protègent la joie de tes vingt ans futurs. Choisir des amis qui partagent l'amour de Jéhovah (**Proverbes 13:20**) allège énormément la pression quotidienne.",
+      illustration: "Une seule goutte d'encre trouble vite un verre d'eau limpide ; protéger ses fréquentations garde l'esprit clair."
     },
     {
       id: "decisions",
-      keywords: ["choix", "decid", "travail", "argent", "priorit", "sagess", "wisdom", "work", "money"],
-      title: "Sagesse pratique, travail & priorités",
-      verses: ["Proverbes 3:5, 6", "Matthieu 6:33", "Jacques 1:5", "Luc 14:28", "Hébreux 13:5"],
+      keywords: ["choix", "decid", "travail", "emploi", "argent", "priorit", "sagess", "dilemme", "orientation", "wisdom", "work", "money"],
+      title: "Prendre de sages décisions selon les principes bibliques",
+      verses: ["Proverbes 3:5, 6", "Matthieu 6:33", "Jacques 1:5", "Luc 14:28", "Hébreux 13:5", "Proverbes 21:5"],
       queries: ['prendre sagesse décisions prière', '"cherchez d\'abord le Royaume"', '"évaluer la dépense" Luc 14'],
-      advice: "Avant d'agir, vérifie les principes bibliques, pèse les conséquences spirituelles à long terme et demande à Jéhovah du discernement."
+      advice: "Avant d'agir, pose trois questions simples : *Quels principes bibliques s'appliquent ? Quel impact sur mes réunions et ma spiritualité ? Quelle paix de conscience aurai-je dans cinq ans ?*",
+      illustration: "Avant d'emprunter une route inconnue la nuit, consulter le GPS (**Psaume 119:105**) évite de longs détours coûteux."
     },
     {
       id: "ministere",
-      keywords: ["predic", "minister", "enseign", "temoign", "etude", "preach", "ministry", "teach"],
-      title: "Efficacité, tact & joie dans le ministère",
-      verses: ["2 Timothée 4:2", "Colossiens 4:6", "Matthieu 28:19, 20", "Actes 17:22", "Proverbes 25:11"],
+      keywords: ["predic", "minister", "enseign", "temoign", "nouvelle visite", "objection", "bible study", "preach", "ministry", "teach"],
+      title: "Efficacité, tact et joie dans le ministère",
+      verses: ["2 Timothée 4:2", "Colossiens 4:6", "Matthieu 28:19, 20", "Actes 17:22", "Proverbes 25:11", "1 Pierre 3:15"],
       queries: ['"assaisonnées de sel" tact prédication', 'efficacité enseignement Bible', 'engager conversation ministère'],
-      advice: "Pose une question sincère, écoute attentivement la personne, puis relie une idée simple à un seul verset clair."
+      advice: "Une belle discussion tient en trois temps : **écouter sincèrement**, **trouver un point commun**, puis **partager un seul verset clair** avec une question ouverte pour la prochaine rencontre.",
+      illustration: "Une bonne parole dite au bon moment ressemble à des « pommes d'or dans des ciselures d'argent » (**Proverbes 25:11**) : sobre, précieuse et agréable à recevoir."
     },
     {
       id: "amour",
-      keywords: ["amour", "frere", "unite", "hospital", "paix", "congr", "love", "brother", "unity"],
-      title: "Amour fraternel, unité & bienveillance",
-      verses: ["Jean 13:34, 35", "1 Corinthiens 13:4-8", "1 Jean 4:7, 8", "Romains 12:10", "Psaume 133:1"],
-      queries: ['"amour ne disparaît jamais"', 'unité congrégation hospitalité', '"honorez-vous les uns les autres"'],
-      advice: "L'amour chrétien se voit dans les petites attentions : un message, une écoute sans juger et le désir sincère de mettre l'autre à l'aise."
+      keywords: ["amour", "frere", "soeur", "unite", "hospital", "conflit", "dispute", "assemblee", "congr", "love", "brother", "unity"],
+      title: "Amour fraternel, paix et pardon dans l'assemblée",
+      verses: ["Jean 13:34, 35", "1 Corinthiens 13:4-8", "1 Jean 4:7, 8", "Romains 12:10", "Psaume 133:1", "Matthieu 5:23, 24"],
+      queries: ['"amour ne disparaît jamais"', 'unité congrégation pardon', '"honorez-vous les uns les autres"'],
+      advice: "L'amour décrit en **1 Corinthiens 13:4-8** n'est pas d'abord une émotion, mais une décision active de patience, d'écoute et d'hospitalité, surtout quand nos personnalités diffèrent.",
+      illustration: "Comme des pierres taillées pour un même édifice, les frottements mutuels finissent par nous ajuster ensemble."
     },
     {
       id: "esperance",
-      keywords: ["esper", "royaume", "paradis", "avenir", "prophet", "hope", "kingdom", "future"],
-      title: "Garder vivante l'espérance du Royaume",
-      verses: ["Psaume 37:10, 11, 29", "Isaïe 65:21-25", "Daniel 2:44", "Romains 15:4, 13", "Hébreux 11:1"],
-      queries: ['espérance Royaume de Dieu paradis', '"ancre de l\'âme" Hébreux 6', 'promesses prophéties accomplies'],
-      advice: "Visualise concrètement les promesses du monde nouveau et laisse cette certitude éclairer tes priorités d'aujourd'hui."
+      keywords: ["esper", "royaume", "paradis", "avenir", "prophet", "fin du monde", "monde nouveau", "hope", "kingdom", "future"],
+      title: "Rendre vivante l'espérance du Royaume et du Paradis",
+      verses: ["Psaume 37:10, 11, 29", "Isaïe 65:21-25", "Daniel 2:44", "Romains 15:4, 13", "Hébreux 11:1", "Hébreux 6:19"],
+      queries: ['espérance Royaume de Dieu paradis', '"ancre de l\'âme" Hébreux 6', 'Isaïe 65 monde nouveau'],
+      advice: "En **Hébreux 6:19**, l'espérance est comparée à une *ancre* solide et sûre : elle empêche notre navire de dériver quand les vagues de ce système se déchaînent.",
+      illustration: "Un navire ancré dans le fond marin reste immobile même sous la tempête ; méditer sur **Isaïe 65:21-25** ancre notre cœur."
     },
     {
-      id: "bible",
-      keywords: ["nom", "jehovah", "jesus", "croix", "ame", "science", "creation", "verite"],
-      title: "Fondements bibliques & recherche doctrinale",
-      verses: ["Psaume 83:18", "Jean 17:3", "2 Timothée 3:16, 17", "Romains 1:20", "Actes 17:11"],
-      queries: ['Psaume 83:18 nom divin Jéhovah', '"toute Écriture est inspirée"', 'exactitude scientifique Bible'],
-      advice: "Compare toujours plusieurs traductions et laisse la Bible s'expliquer par elle-même grâce aux renvois et au contexte."
+      id: "patience",
+      keywords: ["colere", "impati", "agac", "maitrise", "calme", "temper", "anger", "self-control", "patience"],
+      title: "Maîtrise de soi, patience et sérénité",
+      verses: ["Proverbes 14:29", "Proverbes 16:32", "Jacques 1:19, 20", "Éphésiens 4:26, 31", "Galates 5:22, 23"],
+      queries: ['"lent à la colère" Proverbes', 'maîtrise de soi patience esprit', '"prompt à écouter" Jacques 1'],
+      advice: "Applique la règle de **Jacques 1:19** : être *prompt à écouter, lent à parler, lent à se mettre en colère*. Laisser passer trente secondes ou prier silencieusement comme Néhémie (**Néhémie 2:4**) change souvent toute la conversation.",
+      illustration: "Celui qui domine son esprit vaut plus que celui qui prend une ville (**Proverbes 16:32**)."
+    },
+    {
+      id: "solitude",
+      keywords: ["seul", "solitud", "isole", "abandonn", "incompris", "lonely", "alone"],
+      title: "Quand la solitude pèse sur le cœur",
+      verses: ["Psaume 27:10", "Psaume 68:5, 6", "Jean 16:32", "Isaïe 41:10", "Proverbes 18:24"],
+      queries: ['surmonter solitude Jéhovah proche', '"Père des orphelins" Psaume 68', 'trouver amis assemblée'],
+      advice: "Même quand Jésus savait que ses apôtres allaient se disperser, il a dit : « Je ne suis pas seul, parce que le Père est avec moi » (**Jean 16:32**). Tu peux aussi prendre l'initiative d'un appel ou d'une courte visite envers quelqu'un d'autre qui se sent isolé.",
+      illustration: "Allumer une bougie pour éclairer quelqu'un d'autre illumine d'abord nos propres mains."
+    },
+    {
+      id: "tentation",
+      keywords: ["tentat", "chute", "habitude", "puret", "depend", "addict", "pecher", "temptation"],
+      title: "Résister aux tentations et garder un cœur pur",
+      verses: ["1 Corinthiens 10:13", "Jacques 1:14, 15", "Psaume 119:9, 11", "Galates 5:16", "Romains 12:9"],
+      queries: ['"pas tenté au-delà de ce que vous pouvez"', 'résister tentation fuir', 'pureté morale prière'],
+      advice: "**1 Corinthiens 10:13** assure que Jéhovah prépare toujours une *issue* avec la tentation. Le secret consiste souvent à agir *avant* le moment critique, en coupant l'occasion et en priant immédiatement à voix basse.",
+      illustration: "On éteint bien plus facilement une étincelle qu'un incendie déjà propagé : fuis dès le premier compromis."
+    },
+    {
+      id: "sante",
+      keywords: ["malad", "sante", "hopital", "douleur", "souffr", "handicap", "sang", "sick", "health", "pain", "illness"],
+      title: "Force et paix pendant la maladie ou l'épreuve physique",
+      verses: ["Psaume 41:3", "Isaïe 33:24", "2 Corinthiens 12:9", "Romains 8:38, 39", "Psaume 73:26"],
+      queries: ['"soutiendra sur un lit de douleur" Psaume 41', '"aucun habitant ne dira : Je suis malade"', 'maladie chronique consolation'],
+      advice: "**Psaume 41:3** promet tendrement que Jéhovah « le soutiendra sur un lit de douleur » et transformera tout son lit pendant sa maladie. Garde tes objectifs à la mesure de ton énergie d'aujourd'hui : Jéhovah connaît tes limites (**Psaume 103:14**).",
+      illustration: "Dans un hiver rigoureux, un arbre garde ses racines vivantes sans devoir produire de feuilles chaque semaine : rester attaché à Jéhovah suffit parfois largement."
+    },
+    {
+      id: "bible_verite",
+      keywords: ["nom divin", "jehovah", "jesus", "croix", "ame", "science", "creation", "trinite", "enfer", "1914", "verite", "doctrine"],
+      title: "Fondements doctrinaux et exactitude des Écritures",
+      verses: ["Psaume 83:18", "Jean 17:3", "2 Timothée 3:16, 17", "Romains 1:20", "Actes 17:11", "Ecclésiaste 9:5"],
+      queries: ['Psaume 83:18 nom divin Jéhovah', '"toute Écriture est inspirée"', 'vérifier enseignements Écritures Bérée'],
+      advice: "Comme les Béréens d'**Actes 17:11**, vérifie toujours chaque question en comparant les versets dans leur contexte : la Bible s'explique merveilleusement par elle-même.",
+      illustration: "Assembler les différentes pièces d'un puzzle fait apparaître une image limpide et cohérente de la vérité biblique."
     }
   ];
 
-  const BOOK_SHEETS = [
-    { num: 1, author: "Moïse", era: "Vers 1513 av. n. è.", theme: "Origines, promesse de la descendance et alliance abrahamique", structure: "1-11 Origines · 12-50 Patriarches" },
-    { num: 18, author: "Moïse", era: "Vers 1473 av. n. è.", theme: "Intégrité humaine, souveraineté divine & consolation", structure: "1-2 Épreuve · 3-31 Débats · 32-42 Élihou & Jéhovah" },
-    { num: 19, author: "David, fils de Qoré, Asaph, Moïse…", era: "Vers 1473-460 av. n. è.", theme: "Louange, prière dans l'épreuve et confiance en Jéhovah", structure: "5 livres (1-41 · 42-72 · 73-89 · 90-106 · 107-150)" },
-    { num: 20, author: "Salomon, Agour, Lemouël", era: "Vers 717 av. n. è.", theme: "Sagesse pratique fondée sur la crainte de Jéhovah", structure: "1-9 Principes · 10-29 Sentences · 30-31 Agour & Lemouël" },
-    { num: 23, author: "Isaïe", era: "Vers 732 av. n. è.", theme: "Jugement, restauration et le Serviteur messianique", structure: "1-39 Avertissements · 40-66 Consolation & Nouveaux cieux" },
-    { num: 27, author: "Daniel", era: "Vers 536 av. n. è.", theme: "Domination du Très-Haut sur les royaumes humains", structure: "1-6 Fidélité à Babylone · 7-12 Visions prophétiques" },
-    { num: 40, author: "Matthieu (Lévi)", era: "Vers 41 de n. è.", theme: "Jésus est le Roi messianique promis", structure: "1-4 Origines · 5-7 Sermon · 8-25 Ministère · 26-28 Rançon" },
-    { num: 43, author: "Apôtre Jean", era: "Vers 98 de n. è.", theme: "Jésus le Fils de Dieu révèle le Père et donne la vie", structure: "1-12 Signes publics · 13-17 Intimité · 18-21 Sacrifice & victoire" },
-    { num: 44, author: "Luc", era: "Vers 61 de n. è.", theme: "Expansion de la bonne nouvelle jusqu'aux extrémités de la terre", structure: "1-7 Jérusalem · 8-12 Judée/Samarie · 13-28 Voyages de Paul" },
-    { num: 45, author: "Apôtre Paul", era: "Vers 56 de n. è.", theme: "Justice par la foi et miséricorde de Dieu", structure: "1-11 Rançon & dessin divin · 12-16 Vie chrétienne pratique" },
-    { num: 58, author: "Apôtre Paul", era: "Vers 61 de n. è.", theme: "Supériorité de l'alliance nouvelle et foi persévérante", structure: "1-10 Grand Prêtre Jésus · 11-13 Nuée de témoins & fidélité" },
-    { num: 66, author: "Apôtre Jean", era: "Vers 96 de n. è.", theme: "Triomphe final de Dieu et bénédictions éternelles", structure: "1-3 Sept assemblées · 4-20 Victoire du Royaume · 21-22 Paradis" }
-  ];
+  const BOOK_SHEETS = {
+    1: { author: "Moïse", era: "v. 1513 av. n. è.", theme: "Origines, promesse d'Éden et alliance abrahamique", structure: "1–11 Origines · 12–50 Patriarches" },
+    2: { author: "Moïse", era: "v. 1512 av. n. è.", theme: "Délivrance d'Égypte, sanctification du nom de Jéhovah et Loi", structure: "1–18 Exode · 19–40 Alliance & Tabernacle" },
+    18: { author: "Moïse", era: "v. 1473 av. n. è.", theme: "Intégrité humaine et question de la souveraineté universelle", structure: "1–2 Épreuve · 3–31 Discours · 32–42 Élihou & Jéhovah" },
+    19: { author: "David, fils de Qoré, Asaph, Moïse…", era: "v. 1473–460 av. n. è.", theme: "Louange, prière dans l'épreuve et confiance en Jéhovah", structure: "5 recueils (1–41 · 42–72 · 73–89 · 90–106 · 107–150)" },
+    20: { author: "Salomon, Agour, Lemouël", era: "v. 717 av. n. è.", theme: "Sagesse pratique fondée sur la crainte de Jéhovah", structure: "1–9 Fondements · 10–29 Maximes · 30–31 Conseils" },
+    23: { author: "Isaïe", era: "v. 732 av. n. è.", theme: "Jugement, consolation et le Serviteur messianique", structure: "1–39 Avertissements · 40–66 Promesses & Nouveaux cieux" },
+    27: { author: "Daniel", era: "v. 536 av. n. è.", theme: "Domination éternelle du Très-Haut sur les royaumes humains", structure: "1–6 Intégrité à Babylone · 7–12 Visions prophétiques" },
+    40: { author: "Matthieu", era: "v. 41 de n. è.", theme: "Jésus Christ est le Roi messianique promis", structure: "1–4 Origines · 5–7 Sermon · 8–25 Ministère · 26–28 Rançon" },
+    42: { author: "Luc", era: "v. 56–58 de n. è.", theme: "Récit historique précis du Sauveur compatissant pour tous", structure: "1–9 Galilée · 10–19 En route vers Jérusalem · 20–24 Sacrifice" },
+    43: { author: "Apôtre Jean", era: "v. 98 de n. è.", theme: "Jésus révèle l'amour du Père et donne la vie éternelle", structure: "1–12 Signes publics · 13–17 Dernier soir · 18–21 Victoire" },
+    44: { author: "Luc", era: "v. 61 de n. è.", theme: "Expansion rapide de la bonne nouvelle grâce à l'esprit saint", structure: "1–7 Jérusalem · 8–12 Judée/Samarie · 13–28 Voyages missionnaires" },
+    45: { author: "Apôtre Paul", era: "v. 56 de n. è.", theme: "Justification par la foi en la rançon et conduite chrétienne", structure: "1–11 Rançon & dessin divin · 12–16 Vie de l'assemblée" },
+    58: { author: "Apôtre Paul", era: "v. 61 de n. è.", theme: "Supériorité du sacerdoce du Christ et foi persévérante", structure: "1–10 Grand Prêtre Jésus · 11–13 Nuée de témoins" },
+    66: { author: "Apôtre Jean", era: "v. 96 de n. è.", theme: "Triomphe complet du Royaume de Dieu et Paradis restauré", structure: "1–3 Sept assemblées · 4–20 Victoire · 21–22 Nouveaux cieux & terre" }
+  };
 
   const CHARACTER_PROFILES = [
-    { name: "Ruth", trait: "Amour fidèle & humilité", trial: "Veuvage en terre étrangère, pauvreté", lesson: "Rester loyal à Jéhovah ouvre des bénédictions insoupçonnées.", verse: "Ruth 1:16, 17" },
-    { name: "David", trait: "Courage, repentir sincère", trial: "Persécution de Saül, graves fautes suivies de discipline", lesson: "La proximité de Jéhovah naît d'un cœur entier prêt à se corriger.", verse: "1 Samuel 17:45" },
-    { name: "Esther", trait: "Bravoure réfléchie", trial: "Risque de mort devant le roi pour sauver son peuple", lesson: "Prier, préparer avec tact et agir au bon moment.", verse: "Esther 4:14" },
-    { name: "Daniel", trait: "Intégrité constante dès la jeunesse", trial: "Exil, pression alimentaire, fosse aux lions", lesson: "Une habitude quotidienne de prière rend inébranlable dans les crises.", verse: "Daniel 6:10" },
-    { name: "Joseph (fils de Jacob)", trait: "Chasteté, pardon & foi", trial: "Trahison fraternelle, esclavage, prison injuste", lesson: "Même dans l'injustice, la fidélité prépare une délivrance future.", verse: "Genèse 39:9" },
-    { name: "Marie (mère de Jésus)", trait: "Soumission joyeuse & méditation", trial: "Incompréhension possible, fuite, mort de son Fils", lesson: "Garder les paroles de Dieu dans son cœur soutient dans l'épreuve.", verse: "Luc 1:38" },
-    { name: "Apôtre Paul", trait: "Zèle, adaptabilité & persévérance", trial: "Épreuve physique, naufrages, persécutions", lesson: "La grâce de Dieu suffit quand nous nous appuyons sur sa puissance.", verse: "2 Corinthiens 12:9" },
-    { name: "Timothée", trait: "Bonté sincère & progrès spirituel", trial: "Jeunesse, santé fragile, responsabilités lourdes", lesson: "L'amour authentique pour autrui l'emporte sur la timidité.", verse: "1 Timothée 4:12" },
-    { name: "Néhémie", trait: "Organisation, prière éclair & ténacité", trial: "Ruines de Jérusalem, moqueries & complot", lesson: "Allier prière instantanée et action méthodique.", verse: "Néhémie 2:4" },
-    { name: "Job", trait: "Endurance & sincérité", trial: "Perte de ses biens, de ses enfants et maladie aiguë", lesson: "La loyauté ne dépend pas de l'absence d'épreuves.", verse: "Job 27:5" },
-    { name: "Rahab", trait: "Foi courageuse par les œuvres", trial: "Vivait dans une ville condamnée (Jéricho)", lesson: "Quiconque agit en harmonie avec le vrai Dieu peut être accueilli.", verse: "Hébreux 11:31" },
-    { name: "Élie", trait: "Zèle pour le culte pur & humanité", trial: "Famine, menace de mort, profond épuisement", lesson: "Même un prophète fidèle ressent parfois de l'épuisement ; Jéhovah le relève.", verse: "1 Rois 19:12" },
-    { name: "Jonas", trait: "Apprentissage de la miséricorde", trial: "Mission difficile à Ninive, tempête", lesson: "La compassion de Jéhovah dépasse nos préjugés.", verse: "Jonas 4:2" },
-    { name: "Lydie", trait: "Cœur ouvert & hospitalité", trial: "Commerçante dans une ville païenne (Philippes)", lesson: "Ouvrir son foyer soutient concrètement les serviteurs de Dieu.", verse: "Actes 16:14, 15" },
-    { name: "Apôtre Pierre", trait: "Ardeur, humilité après échec", trial: "Peur des hommes, reniement puis restauration", lesson: "Une chute n'efface pas notre utilité si nous nous relevons humblement.", verse: "Jean 21:17" }
+    { name: "Ruth", trait: "Amour fidèle & humilité", trial: "Veuvage et déracinement complet en pays étranger", lesson: "Sa loyauté envers Jéhovah et Naomi l'a fait entrer dans la lignée du Messie.", verse: "Ruth 1:16, 17" },
+    { name: "David", trait: "Courage & repentir sincère", trial: "Persécution de Saül, graves fautes suivies de discipline", lesson: "Dieu chérit un cœur entier qui reconnaît vite ses torts et reste proche de Lui.", verse: "1 Samuel 17:45" },
+    { name: "Esther", trait: "Bravoure réfléchie & tact", trial: "Risque de mort devant Assuérus pour défendre le peuple de Dieu", lesson: "Allier jeûne/prière, calme préparation et franchise au bon moment.", verse: "Esther 4:14" },
+    { name: "Daniel", trait: "Intégrité constante dès la jeunesse", trial: "Exil, pression culturelle, fournaise/fosse aux lions", lesson: "Une discipline quotidienne de prière rend inébranlable face aux plus grandes crises.", verse: "Daniel 6:10" },
+    { name: "Joseph", trait: "Chasteté, endurance & pardon", trial: "Vendu par ses frères, faussement accusé et emprisonné", lesson: "Même oublié dans l'injustice, la fidélité prépare des délivrances inattendues.", verse: "Genèse 39:9" },
+    { name: "Marie", trait: "Humilité joyeuse & méditation", trial: "Incompréhension, exil en Égypte et épreuve du poteau", lesson: "Garder et méditer les paroles de Dieu fortifie le cœur pour les tempêtes futures.", verse: "Luc 1:38" },
+    { name: "Paul", trait: "Zèle, adaptabilité & gratitude", trial: "Naufrages, lapidation, prison et épine dans la chair", lesson: "La puissance du Christ s'accomplit précisément lorsque nous sentons nos limites.", verse: "2 Corinthiens 12:9" },
+    { name: "Timothée", trait: "Bienveillance sincère & progrès", trial: "Jeunesse, timidité et ennuis de santé chroniques", lesson: "L'intérêt sincère pour les frères l'emporte sur l'appréhension naturelle.", verse: "1 Timothée 4:12" },
+    { name: "Néhémie", trait: "Prière éclair & esprit pratique", trial: "Murs en ruine, menaces extérieures et découragement interne", lesson: "Une courte prière silencieuse avant chaque décision donne assurance et ordre.", verse: "Néhémie 2:4" },
+    { name: "Job", trait: "Endurance & intégrité pure", trial: "Perte totale de ses biens, enfants et santé", lesson: "Servir Jéhovah par amour désintéressé et jamais par simple intérêt matériel.", verse: "Job 27:5" },
+    { name: "Rahab", trait: "Foi courageuse traduite en actes", trial: "Élevée à Jéricho, ville pourtant vouée à la destruction", lesson: "Passé difficile ou milieu hostile n'empêchent jamais Jéhovah d'accueillir une foi sincère.", verse: "Hébreux 11:31" },
+    { name: "Élie", trait: "Zèle vif & profonde humanité", trial: "Famine, confrontation solitaire au Carmel et épuisement moral", lesson: "Quand un serviteur s'effondre de fatigue, Jéhovah lui parle avec une voix calme et douce.", verse: "1 Rois 19:12" },
+    { name: "Jonas", trait: "Apprentissage de la compassion", trial: "Répugnance envers Ninive, tempête et découragement sous le ricin", lesson: "La miséricorde de Jéhovah envers ceux qui se repentent dépasse de loin nos jugements.", verse: "Jonas 4:2" },
+    { name: "Lydie", trait: "Cœur réceptif & hospitalité", trial: "Commerçante en ville païenne (Philippes)", lesson: "Ouvrir son foyer devient un pilier discret mais vital pour l'avancement de la vérité.", verse: "Actes 16:14, 15" },
+    { name: "Pierre", trait: "Ardeur & reconstruction après chute", trial: "Peur des hommes, triple reniement et pardon du Christ", lesson: "Une défaillance même grave n'efface pas notre avenir spirituel quand le repentir est vrai.", verse: "Jean 21:17" },
+    { name: "Abraham", trait: "Foi agissante & amitié avec Dieu", trial: "Quitter sa terre sans carte précise et l'épreuve de Moria", lesson: "Obéir pas à pas dans la confiance vaut d'être appelé « ami de Jéhovah ».", verse: "Jacques 2:23" },
+    { name: "Moïse", trait: "Douceur remarquable & loyauté", trial: "Peuple souvent murmurateur pendant quarante ans", lesson: "Regarder constamment « Celui qui est invisible » permet de tenir ferme sous pression.", verse: "Hébreux 11:27" },
+    { name: "Jérémie", trait: "Sensibilité & fidélité isolée", trial: "Quarante ans d'indifférence, fosse boueuse et rejet", lesson: "Un jeune timide soutenu par Jéhovah devient comme une « colonne de fer ».", verse: "Jérémie 1:8" },
+    { name: "Hanna", trait: "Prière fervente dans la tristesse", trial: "Stérilité, moqueries répétées et incompréhension d'Éli", lesson: "Décharger son âme amèrement auprès de Jéhovah ramène un visage paisible avant même l'exaucement.", verse: "1 Samuel 1:18" },
+    { name: "Barnabé", trait: "« Fils de consolation »", trial: "Tensions autour de Marc et doutes envers Paul converti", lesson: "Croire au potentiel des autres relève ceux que d'autres écarteraient.", verse: "Actes 9:27" }
   ];
 
   const GLOSSARY_TERMS = [
-    { term: "Jéhovah", def: "Forme française usuelle du Tétragramme YHWH : « Il fait devenir ». Nom personnel du Tout-Puissant (~7 000 fois dans le texte original).", refs: ["Psaume 83:18", "Exode 3:14, 15"] },
-    { term: "Âme (néphèsh / psykhé)", def: "Désigne un être vivant (humain ou animal) qui respire, ou la vie elle-même — jamais une entité immortelle séparée du corps.", refs: ["Genèse 2:7", "Ézéchiel 18:4"] },
-    { term: "Schéol / Hadès", def: "La tombe commune des humains, lieu d'inactivité et d'inconscience en attente de la résurrection.", refs: ["Ecclésiaste 9:5, 10", "Actes 2:27"] },
-    { term: "Géhenne", def: "Empruntée à la vallée de Hinnom (décharge de Jérusalem) : symbole de destruction complète sans résurrection.", refs: ["Matthieu 10:28", "Matthieu 23:33"] },
-    { term: "Rançon (lytron)", def: "Prix payé par le sacrifice parfait de Jésus pour racheter l'humanité du péché et de la mort hérités d'Adam.", refs: ["Matthieu 20:28", "1 Timothée 2:5, 6"] },
-    { term: "Royaume de Dieu", def: "Gouvernement céleste réel dirigé par Jésus Christ qui sanctifiera le nom de Dieu et rétablira le Paradis sur terre.", refs: ["Daniel 2:44", "Matthieu 6:9, 10"] },
-    { term: "Présence (parousia)", def: "Période invisible au cours de laquelle Christ règne dans les cieux et prépare le dénouement de ce système.", refs: ["Matthieu 24:3, 37"] },
-    { term: "Amour fidèle (hésèd)", def: "Attachement loyal et durable guidé par l'engagement moral et la tendresse ; caractéristique majeure de Jéhovah.", refs: ["Exode 34:6", "Psaume 136:1"] },
-    { term: "Esprit saint", def: "Force agissante invisible et puissante de Dieu grâce à laquelle il crée, inspire les Écritures et soutient ses serviteurs.", refs: ["Genèse 1:2", "Actes 1:8"] },
-    { term: "Foi (pistis)", def: "Attente assurée et démonstration évidente de réalités invisibles, fondée sur des preuves solides.", refs: ["Hébreux 11:1", "Romains 10:17"] },
-    { term: "Alliance nouvelle", def: "Accord inauguré par le sang de Jésus remplaçant l'alliance de la Loi et associant des cohéritiers au Royaume.", refs: ["Jérémie 31:31-34", "Luc 22:20"] },
-    { term: "Souveraineté", def: "Autorité suprême et droit légitime de Jéhovah de diriger tout l'univers pour le bien de ses créatures.", refs: ["Psaume 103:19", "Révélation 4:11"] },
-    { term: "Intégrité", def: "Droiture morale complète et fidélité inébranlable envers Dieu, même sous pression.", refs: ["Job 27:5", "Psaume 26:11"] },
-    { term: "Méditation (biblique)", def: "Réflexion calme et profonde sur les pensées de Dieu afin qu'elles descendent du cerveau jusqu'au cœur.", refs: ["Psaume 1:2", "Josué 1:8"] },
-    { term: "Humilité", def: "Estimation juste et modeste de soi-même devant Dieu et autrui ; conscience joyeuse de dépendre du Créateur.", refs: ["Proverbes 11:2", "Philippiens 2:3"] },
-    { term: "Justice divine", def: "Respect parfait de ce qui est moralement droit et équitable, toujours équilibré par l'amour et la sagesse.", refs: ["Deutéronome 32:4", "Psaume 89:14"] },
-    { term: "Sanctuaire / Temple spirituel", def: "Disposition établie par Jéhovah pour que les humains l'adorent de façon pure sur la base du sacrifice du Christ.", refs: ["Hébreux 8:1, 2"] },
-    { term: "Résurrection (anastasis)", def: "« Relèvement » littéral à la vie de ceux qui sont dans le souvenir de Dieu, soit au ciel soit sur une terre paradisiaque.", refs: ["Jean 5:28, 29", "Actes 24:15"] }
+    { term: "Jéhovah", def: "Forme usuelle du Tétragramme YHWH (« Il fait devenir ») : nom personnel du Créateur (~7 000 fois dans le texte original).", refs: ["Psaume 83:18", "Exode 3:15"] },
+    { term: "Âme (néphèsh / psykhé)", def: "Désigne un être vivant qui respire ou la vie elle-même — jamais une partie immortelle survivant séparément à la mort.", refs: ["Genèse 2:7", "Ézéchiel 18:4"] },
+    { term: "Schéol / Hadès", def: "La tombe commune des humains, état d'inconscience et d'inactivité totale en attendant la résurrection.", refs: ["Ecclésiaste 9:5, 10", "Actes 2:27"] },
+    { term: "Géhenne", def: "Empruntée à la vallée de Hinnom (décharge brûlante) : symbole de destruction définitive sans résurrection.", refs: ["Matthieu 10:28", "Matthieu 23:33"] },
+    { term: "Rançon (lytron)", def: "Prix correspondant payé par la vie parfaite de Jésus pour racheter l'humanité du péché et de la mort hérités d'Adam.", refs: ["Matthieu 20:28", "1 Timothée 2:5, 6"] },
+    { term: "Royaume de Dieu", def: "Gouvernement céleste réel établi par Dieu avec Jésus Christ pour Roi, qui sanctifiera le nom divin et transformera la terre.", refs: ["Daniel 2:44", "Matthieu 6:9, 10"] },
+    { term: "Présence (parousia)", def: "Période invisible pendant laquelle le Christ règne depuis les cieux et achève le rassemblement de ses serviteurs.", refs: ["Matthieu 24:3, 37"] },
+    { term: "Amour fidèle (hésèd)", def: "Attachement loyal et affectueux qui ne lâche jamais prise, guidé par la bonté et la fidélité morale.", refs: ["Exode 34:6", "Psaume 136:1"] },
+    { term: "Esprit saint", def: "Force agissante invisible et toute-puissante de Dieu (et non une personne distincte) par laquelle il crée et enseigne.", refs: ["Genèse 1:2", "Actes 1:8"] },
+    { term: "Foi (pistis)", def: "Attente assurée et conviction solide appuyée sur des preuves manifestes de réalités encore invisibles.", refs: ["Hébreux 11:1", "Romains 10:17"] },
+    { term: "Alliance nouvelle", def: "Accord validé par le sang de Jésus remplaçant l'alliance de la Loi et unissant des rois-prêtres à son règne.", refs: ["Jérémie 31:31-34", "Luc 22:20"] },
+    { term: "Souveraineté", def: "Droit légitime et autorité suprême de Jéhovah de diriger tout ce qui vit pour son plus grand bien.", refs: ["Psaume 103:19", "Révélation 4:11"] },
+    { term: "Intégrité", def: "Droiture morale complète et fidélité loyale envers Dieu quelles que soient les circonstances.", refs: ["Job 27:5", "Psaume 26:11"] },
+    { term: "Méditation", def: "Réflexion calme et attentive permettant aux vérités bibliques de descendre de la tête jusqu'aux sentiments et aux choix.", refs: ["Psaume 1:2", "Josué 1:8"] },
+    { term: "Humilité", def: "Estimation juste et modeste de soi devant Dieu ; reconnaître joyeusement qu'on a besoin de sa sagesse.", refs: ["Proverbes 11:2", "Philippiens 2:3"] },
+    { term: "Résurrection (anastasis)", def: "« Relèvement » à la vie des personnes gardées dans le souvenir parfait de Dieu, sur terre ou au ciel.", refs: ["Jean 5:28, 29", "Actes 24:15"] }
   ];
 
   const OBJECTIONS = [
-    { obj: "« Je n'ai pas le temps de parler / de lire. »", reply: "Je comprends tout à fait, nos journées filent vite ! C'est justement pourquoi je voulais juste vous laisser cette pensée courte en 30 secondes sur la vraie paix d'esprit.", verse: "Éphésiens 5:15, 16" },
-    { obj: "« J'ai déjà ma religion. »", reply: "C'est respectable d'attacher de l'importance aux valeurs spirituelles. Au-delà des étiquettes, que pensez-vous de cette promesse de la Bible concernant l'avenir de la terre ?", verse: "Matthieu 5:5" },
-    { obj: "« S'il y a un Dieu, pourquoi y a-t-il tant de souffrances ? »", reply: "C'est l'une des questions les plus justes qui soient. Savez-vous que la Bible montre clairement que Dieu n'est pas l'auteur du mal et explique pourquoi il l'a toléré temporairement ?", verse: "Jacques 1:13" },
-    { obj: "« Je crois en la science, pas en la Bible. »", reply: "Beaucoup pensent qu'elles s'opposent, mais la Bible n'est pas un manuel de religion aveugle : des siècles avant la science moderne, elle décrivait déjà la terre suspendue sur le néant et le cycle de l'eau.", verse: "Job 26:7" },
-    { obj: "« On n'a pas besoin de religion pour être quelqu'un de bien. »", reply: "On peut tout à fait avoir un beau cœur sans église. Ce qui est fascinant, c'est que Jésus lui-même mettait l'accent sur la bonté concrète et une amitié personnelle avec Dieu plutôt que sur les rituels.", verse: "Michée 6:8" },
-    { obj: "« La Bible a été écrite par des hommes et modifiée. »", reply: "Bonne remarque ! Justement, les découvertes comme les rouleaux de la mer Morte ont permis de comparer des manuscrits anciens sur mille ans et de constater une fidélité étonnante.", verse: "Isaïe 40:8" },
-    { obj: "« Je ne crois pas en Dieu. »", reply: "Merci pour votre franchise ! Est-ce plutôt à cause de l'hypocrisie que l'on voit parfois dans les religions, ou parce que vous pensez que l'univers s'est formé seul ?", verse: "Hébreux 3:4" },
-    { obj: "« Tout est écrit d'avance (destin). »", reply: "Si tout était figé, nos choix n'auraient aucun sens. En fait, la Bible compare notre avenir à une route où Dieu nous laisse choisir le chemin.", verse: "Deutéronome 30:19" },
-    { obj: "« Que faites-vous de différent avec le nom de Dieu ? »", reply: "Quand on connaît quelqu'un, on aime utiliser son prénom. Dans les manuscrits hébreux, Dieu utilise son nom Jéhovah près de 7 000 fois comme une invitation à se rapprocher de lui.", verse: "Psaume 83:18" },
-    { obj: "« Pourquoi allez-vous de maison en maison ? »", reply: "Tout le monde n'a pas l'occasion ni l'envie d'entrer dans un lieu de culte, alors nous suivons l'exemple de Jésus en allant humblement parler aux gens là où ils vivent.", verse: "Matthieu 10:11-13" },
-    { obj: "« Les choses iront toujours ainsi, rien ne change. »", reply: "On peut comprendre ce sentiment en voyant les nouvelles ! Pourtant, l'histoire humaine montre qu'il y a déjà eu des tournants décisifs, et Dieu a promis un changement global.", verse: "2 Pierre 3:3, 9" },
-    { obj: "« L'Enfer attend-il les méchants ? »", reply: "Un père aimant ne torturerait jamais un enfant éternellement pour une faute temporaire. La Bible montre que le salaire du péché, c'est la mort — l'absence de vie, pas le supplice.", verse: "Romains 6:23" },
-    { obj: "« Comment savoir quel chemin est le bon parmi tant d'Églises ? »", reply: "Jésus a donné un critère très simple pour reconnaître ses vrais disciples : pas leurs grands édifices, mais l'amour concret qu'ils ont entre eux.", verse: "Jean 13:35" },
-    { obj: "« Revenez plus tard, là c'est compliqué. »", reply: "Bien sûr, je ne veux surtout pas vous déranger. Quel moment de la semaine est habituellement plus calme pour vous ?", verse: "Colossiens 4:6" }
-  ];
-
-  const ILLUSTRATIONS = [
-    { topic: "Guidance divine", title: "Le GPS & la carte routière", text: "Avoir une belle voiture ne suffit pas pour trouver une route inconnue la nuit ; il faut un GPS fiable à jour. La Bible joue ce rôle face aux virages de la vie.", verse: "Psaume 119:105" },
-    { topic: "Création & Concepteur", title: "L'horloger et la montre suisse", text: "On ne suppose pas que des engrenages jetés en l'air se sont assemblés pour donner l'heure exacte. La précision du cosmos et de l'ADN révèle une intelligence bien supérieure.", verse: "Hébreux 3:4" },
-    { topic: "Tolérance du mal", title: "L'élève qui conteste le professeur", text: "Si un élève prétend savoir mieux résoudre une équation devant toute la classe, l'enseignant sage le laisse essayer un moment au tableau afin que chacun voie la preuve irréfutable.", verse: "Deutéronome 32:4, 5" },
-    { topic: "Prière", title: "La lettre et l'appel familial", text: "Dans une amitié vivante, l'un lit les messages (la Bible) et répond de vive voix (la prière). Sans échange dans les deux sens, le lien refroidit.", verse: "Jacques 4:8" },
-    { topic: "Rançon", title: "L'usine en faillite rachetée", text: "Quand un employé détourné laisse l'usine endettée, un bienfaiteur innocent peut payer exactement le montant dû pour libérer les travailleurs. Jésus a payé cette vie parfaite équivalente.", verse: "1 Corinthiens 15:22" },
-    { topic: "Choix des amis", title: "L'encre dans l'eau claire", text: "Une goutte d'encre suffit pour troubler un verre d'eau limpide ; inversement, côtoyer des personnes aimant Dieu clarifie notre cœur.", verse: "1 Corinthiens 15:33" },
-    { topic: "Humilité", title: "L'épi de blé chargé", text: "Plus un épi est vide, plus il dresse la tête avec arrogance ; plus il est rempli de bon grain, plus il s'incline modestement.", verse: "Proverbes 11:2" },
-    { topic: "Pardon", title: "Le pardessus couvert de boue vs l'oubli volontaire", text: "Pardonner ne signifie pas faire semblant que ça n'a pas fait mal, mais décider de ne plus jeter la facture sur la table.", verse: "Éphésiens 4:32" },
-    { topic: "Persévérance", title: "Le coureur de fond", text: "On ne juge pas un marathonien sur un seul kilomètre : même s'il ralentit dans une côte, tant qu'il reste sur le tracé, il avance vers la ligne.", verse: "Hébreux 12:1" },
-    { topic: "Méditation", title: "L'éponge dans l'eau", text: "Survoler vite un chapitre est comme éclabousser une pierre. Méditer revient à plonger l'éponge dans l'eau jusqu'à ce qu'elle s'imprègne.", verse: "Josué 1:8" },
-    { topic: "État des morts", title: "Le sommeil profond sans rêves", text: "Jésus a comparé la mort de Lazare à un sommeil paisible : celui qui dort profondément ne souffre pas et se réveille sans avoir vu le temps passer.", verse: "Jean 11:11-14" },
-    { topic: "Paroles douces", title: "La clé et le verrou", text: "Forcer un coffre abîme la porte, alors qu'une parole calme et réfléchie ouvre doucement le cœur de l'interlocuteur.", verse: "Proverbes 25:15" }
-  ];
-
-  const TIMELINE_EVENTS = [
-    { era: "Origines", date: "Création", title: "Paradis originel en Éden & promesse d'Éden", desc: "Création parfaite de la terre et promesse en Genèse 3:15 d'écraser le serpent.", verse: "Genèse 3:15" },
-    { era: "Patriarches", date: "~1943 av. n. è.", title: "Alliance avec Abraham", desc: "Promesse que par sa descendance toutes les nations seront bénies.", verse: "Genèse 22:18" },
-    { era: "Exode", date: "1513 av. n. è.", title: "Délivrance d'Égypte & Alliance de la Loi", desc: "Pâque, traversée de la mer Rouge et Loi au mont Sinaï.", verse: "Exode 19:5, 6" },
-    { era: "Royauté", date: "~1070–997 av. n. è.", title: "Règne de David & Temple de Salomon", desc: "Alliance pour une royauté éternelle et dédicace du Temple de Jérusalem.", verse: "2 Samuel 7:16" },
-    { era: "Exil", date: "607–537 av. n. è.", title: "Destruction de Jérusalem puis retour de Babylone", desc: "Les 70 ans de désolation accomplis exactement selon Jérémie & Daniel.", verse: "Daniel 9:2" },
-    { era: "Messie", date: "29 de n. è.", title: "Baptême de Jésus & début des 70 semaines", desc: "Oint d'esprit saint au Jourdain ; début du ministère public du Messie.", verse: "Luc 3:21, 22" },
-    { era: "Rançon", date: "14 Nisan 33 de n. è.", title: "Sacrifice rédempteur & Pentecôte", desc: "Christ offre sa vie parfaite ; naissance de l'assemblée chrétienne 50 jours après.", verse: "Actes 2:1-4" },
-    { era: "Nouvelle alliance", date: "36 de n. è.", title: "Accueil de Corneille (nations non juives)", desc: "La bonne nouvelle s'ouvre officiellement aux personnes de toutes les nations.", verse: "Actes 10:34, 35" },
-    { era: "Dernières lettres", date: "~98 de n. è.", title: "Achèvement du canon biblique par Jean", desc: "Rédaction de Révélation et de l'Évangile de Jean à Éphèse/Patmos.", verse: "Révélation 1:1" },
-    { era: "Temps de la fin", date: "1914 de n. è.", title: "Intronisation du Royaume messianique", desc: "Début du règne céleste de Christ et de l'œuvre mondiale de prédication.", verse: "Matthieu 24:14" },
-    { era: "Dénouement", date: "Imminent", title: "Grande tribulation & Harmaguédon", desc: "Sanctification définitive du nom de Jéhovah devant toutes les nations.", verse: "Daniel 2:44" },
-    { era: "Paradis éternel", date: "1 000 ans & au-delà", title: "Résurrection et vie sans mort ni larmes", desc: "La terre restaurée en Éden mondial sous la royauté aimante de Dieu.", verse: "Révélation 21:3, 4" }
+    { match: ["temps", "occupe", "presse"], obj: "Pas le temps", reply: "Je comprends tout à fait, nos journées filent vite ! Je voulais simplement partager une phrase de 20 secondes sur la vraie paix d'esprit : selon vous, qu'est-ce qui aide le plus à garder le calme aujourd'hui ?", verse: "Éphésiens 5:15, 16" },
+    { match: ["ma religion", "croyant", "catholique", "musulman", "protestant"], obj: "J'ai déjà ma religion", reply: "C'est respectable d'attacher du prix aux valeurs spirituelles. Au-delà des appartenances, aimeriez-vous voir ce que la Bible elle-même promet pour l'avenir proche de notre planète ?", verse: "Psaume 37:29" },
+    { match: ["souffrance", "mal", "guerre", "pourquoi dieu"], obj: "Pourquoi Dieu permet-il la souffrance ?", reply: "C'est l'une des questions les plus justes. La Bible montre que Dieu n'est jamais l'auteur du mal (**Jacques 1:13**), mais qu'il accorde un délai limité afin de régler définitivement une question morale avant de tout réparer.", verse: "Jacques 1:13" },
+    { match: ["science", "evolution", "hasard", "big bang"], obj: "Science vs Bible / Hasard", reply: "Beaucoup sont surpris de découvrir que la vraie science et la Bible s'accordent : bien avant notre époque, **Job 26:7** parlait déjà de la terre « suspendue sur rien » et **Hébreux 3:4** rappelle que toute maison a un constructeur.", verse: "Hébreux 3:4" },
+    { match: ["pas besoin", "sans religion", "bon sans"], obj: "Pas besoin de religion pour être bon", reply: "On peut tout à fait avoir un beau cœur sans église. Jésus lui-même dénonçait l'hypocrisie rituelle et invitait à trois attitudes simples : pratiquer la justice, aimer la fidélité et marcher modestement avec Dieu.", verse: "Michée 6:8" },
+    { match: ["enfer", "chatiment", "bruler"], obj: "L'Enfer existe-t-il ?", reply: "Un père aimant ne torturerait jamais son enfant éternellement. En **Romains 6:23**, la Bible dit que le salaire du péché c'est simplement la mort (l'inexistence), jamais le supplice éternel.", verse: "Romains 6:23" },
+    { match: ["trinite", "jesus dieu", "trois"], obj: "Jésus est-il le Dieu Tout-Puissant ?", reply: "Jésus est le Fils bien-aimé et le Roi choisi, mais il a lui-même prié son Père en l'appelant en **Jean 17:3** « le seul vrai Dieu », et déclaré en **Jean 14:28** : « Le Père est plus grand que moi. »", verse: "Jean 17:3" },
+    { match: ["ecrite par hommes", "modifiee", "traduite"], obj: "Bible modifiée par les hommes ?", reply: "Excellente question ! La découverte des rouleaux de la mer Morte, antérieurs de mille ans aux manuscrits jusque-là connus, a confirmé une transmission remarquablement fidèle du texte biblique.", verse: "Isaïe 40:8" }
   ];
 
   const QUIZ_BANK = [
     { q: "Quel verset cite explicitement le nom divin dans de nombreuses traductions ?", a: ["Psaume 83:18", "Jean 1:1", "Genèse 2:1", "Matthieu 5:1"], c: 0, ref: "Psaume 83:18" },
-    { q: "Combien de livres composent la Bible complète ?", a: ["39", "66", "72", "27"], c: 1, ref: "2 Timothée 3:16" },
-    { q: "Combien de chapitres contient toute la Bible ?", a: ["929", "1 000", "1 189", "1 500"], c: 2, ref: "Psaume 1:2" },
+    { q: "Combien de livres et de chapitres composent la Bible ?", a: ["39 livres / 929 ch.", "66 livres / 1 189 ch.", "72 livres / 1 200 ch.", "27 livres / 260 ch."], c: 1, ref: "2 Timothée 3:16" },
     { q: "Quel apôtre était collecteur d'impôts avant de suivre Jésus ?", a: ["Luc", "Matthieu", "Marc", "Philippe"], c: 1, ref: "Matthieu 9:9" },
-    { q: "À qui Jésus a-t-il dit que le fruit de la vie éternelle vient de la connaissance de Dieu ?", a: ["Ses disciples lors de la prière chap. 17", "Hérode", "Les pharisiens seuls", "Les Romains"], c: 0, ref: "Jean 17:3" },
     { q: "Quel prophète a été jeté dans la fosse aux lions ?", a: ["Ézéchiel", "Daniel", "Jérémie", "Jonas"], c: 1, ref: "Daniel 6:16" },
     { q: "Quel est le premier fruit de l'esprit mentionné en Galates 5:22 ?", a: ["La joie", "La patience", "L'amour", "La douceur"], c: 2, ref: "Galates 5:22" },
-    { q: "Qui a prononcé la prière mémorable « Où tu iras j'irai » ?", a: ["Esther", "Ruth", "Débora", "Abigaïl"], c: 1, ref: "Ruth 1:16" },
-    { q: "Selon Proverbes 3:5, sur quoi ne faut-il PAS s'appuyer ?", a: ["Son propre intelligence / compréhension", "Les conseils sages", "La prière", "L'expérience"], c: 0, ref: "Proverbes 3:5" },
-    { q: "Quel roi a bâti le premier Temple de Jérusalem ?", a: ["David", "Saül", "Salomon", "Ézéchias"], c: 2, ref: "1 Rois 6:1" },
+    { q: "Qui a prononcé « Où tu iras j'irai » ?", a: ["Esther", "Ruth", "Débora", "Abigaïl"], c: 1, ref: "Ruth 1:16" },
     { q: "Quel verset promet que Dieu « essuiera toute larme de leurs yeux » ?", a: ["Révélation 21:4", "Actes 20:35", "Romains 8:28", "Psaume 23:1"], c: 0, ref: "Révélation 21:4" },
-    { q: "Combien d'hommes fidèles Gédéon a-t-il gardés contre Madian ?", a: ["10 000", "1 000", "300", "12"], c: 2, ref: "Juges 7:7" },
-    { q: "Quelle femme marchande de pourpre a ouvert sa maison à Paul à Philippes ?", a: ["Priscille", "Lydie", "Dorcas", "Phœbé"], c: 1, ref: "Actes 16:14, 15" },
-    { q: "Que déclare 1 Jean 4:8 sur la nature essentielle de Dieu ?", a: ["Dieu est mystère", "Dieu est amour", "Dieu est silence", "Dieu est lointain"], c: 1, ref: "1 Jean 4:8" },
-    { q: "Quel livre contient « Une corde triple ne se rompt pas vite » ?", a: ["Cantique des cantiques", "Ecclésiaste", "Lamentations", "Osée"], c: 1, ref: "Ecclésiaste 4:12" },
-    { q: "Quel ami de Jésus a été ressuscité après quatre jours au tombeau ?", a: ["Étienne", "Lazare", "Bartimée", "Zachée"], c: 1, ref: "Jean 11:39-44" },
-    { q: "Dans quel Évangile trouve-t-on la parabole du bon Samaritain ?", a: ["Matthieu", "Marc", "Luc", "Jean"], c: 2, ref: "Luc 10:33" },
-    { q: "Quel chapitre biblique est surnommé l'hymne à l'amour ?", a: ["1 Corinthiens 13", "Romains 5", "Hébreux 11", "Matthieu 5"], c: 0, ref: "1 Corinthiens 13:4-8" },
-    { q: "Quel roi de Babylone vit une écriture mystérieuse sur le mur ?", a: ["Neboukadnetsar", "Belshatsar", "Cyrus", "Darius"], c: 1, ref: "Daniel 5:5" },
-    { q: "Quel jeune collaborateur de Paul connaissait les Écritures dès sa petite enfance ?", a: ["Tite", "Timothée", "Philémon", "Onésime"], c: 1, ref: "2 Timothée 3:15" },
-    { q: "Qui a prié silencieusement « dans son cœur » au tabernacle avant de devenir mère de Samuel ?", a: ["Sara", "Rébecca", "Hanna", "Élisabeth"], c: 2, ref: "1 Samuel 1:13" },
-    { q: "Que compare Psaume 1:3 à celui qui médite jour et nuit ?", a: ["Un arbre planté près de ruisseaux d'eau", "Un éclair du matin", "Un roc isolé", "Un nuage rapide"], c: 0, ref: "Psaume 1:3" },
-    { q: "Quel verset encourage « Déchargez-vous sur lui de toute votre inquiétude » ?", a: ["1 Pierre 5:7", "2 Pierre 1:5", "Jude 20", "Tite 2:11"], c: 0, ref: "1 Pierre 5:7" },
+    { q: "Quelle femme marchande de pourpre a accueilli Paul à Philippes ?", a: ["Priscille", "Lydie", "Dorcas", "Phœbé"], c: 1, ref: "Actes 16:14, 15" },
     { q: "Quel prophète a reconstruit les murailles de Jérusalem en 52 jours ?", a: ["Esdras", "Néhémie", "Aggée", "Zacharie"], c: 1, ref: "Néhémie 6:15" },
-    { q: "Quelle est la toute première phrase du livre de la Genèse ?", a: ["Au commencement Dieu créa le ciel et la terre", "Au commencement était la Parole", "Jéhovah est mon berger", "Heureux ceux qui sont conscients"], c: 0, ref: "Genèse 1:1" }
+    { q: "Quel verset encourage : « Déchargez-vous sur lui de toute votre inquiétude » ?", a: ["1 Pierre 5:7", "2 Pierre 1:5", "Jude 20", "Tite 2:11"], c: 0, ref: "1 Pierre 5:7" }
   ];
 
   // ==========================================================================
-  // Moteur Conversationnel Local (Zero-API Natural Intent Router)
+  // Helpers de Contexte Actif (Chapitre Bible, Article Ouvert, Notes, Texte du Jour)
   // ==========================================================================
 
-  function analyzeUserQueryLocally(rawQuery) {
-    const q = String(rawQuery || "").trim();
-    const low = q
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
+  function getLiveContextSummary() {
+    const curArt = window.DFWolReader?.getCurrentArticleData?.();
+    const curBible = window.DFWolReader?.getCurrentBibleState?.();
+    const curBibleData = curBible?.primaryData;
+    const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
+    const dtRef = document.getElementById("dt-scripture-ref-label")?.textContent?.trim() ||
+      document.getElementById("dt-scripture-ref-btn")?.textContent?.trim() || "";
 
-    // 1. Si l'utilisateur saisit directement un verset biblique
-    const directRefs = window.DFWolBible?.parseScriptureReferences?.(q, lang()) || [];
-    if (directRefs.length > 0) {
-      return {
-        reply: `J'ai reconnu la référence biblique **${directRefs.map((r) => r.label).join(", ")}**. Tu peux l'ouvrir directement dans le volet Étude individuelle, lancer un quiz ou demander les perles du contexte.`,
-        verses: directRefs.map((r) => r.label),
-        queries: directRefs.map((r) => r.label),
-        recommendedSkill: "verse-lens"
-      };
+    let bibleLabel = "";
+    if (curBibleData?.book) {
+      const bName = window.DFWolBible.getBookDisplayName(curBibleData.book, curBibleData.lang || lang());
+      bibleLabel = `${bName} ${curBibleData.chapter}`;
     }
 
-    // 2. Correspondance avec la base thématique
-    let bestTopic = null;
+    return {
+      curArt,
+      curBibleData,
+      bibleLabel,
+      notesCount: notes.length,
+      dtRef
+    };
+  }
+
+  async function fetchLiveArticlesForTopic(queryStr) {
+    if (!queryStr || !window.DFWolSearch?.runUnifiedSearch) return [];
+    const curLang = lang();
+    try {
+      const task = window.DFWolSearch.runUnifiedSearch({
+        query: queryStr,
+        scope: "publications",
+        proximity: "par",
+        sort: "occ",
+        lang: curLang,
+        engine: "auto"
+      });
+      const timeout = new Promise((res) => setTimeout(() => res(null), 5500));
+      const data = await Promise.race([task, timeout]);
+      if (!data) return [];
+      const wolHits = (data.wolItems || []).map((r) => ({
+        title: cleanStr(r.title),
+        sub: cleanStr(r.context || "WOL.jw.org"),
+        url: r.wolUrl
+      }));
+      const jwHits = (data.jwItems || [])
+        .filter((r) => r.subtype !== "video" && (r.wolUrl || r.jwUrl))
+        .map((r) => ({
+          title: cleanStr(r.title),
+          sub: cleanStr(r.context || "JW.org"),
+          url: r.wolUrl || r.jwUrl
+        }));
+      const seen = new Set();
+      const merged = [];
+      for (const it of [...jwHits, ...wolHits]) {
+        if (!it.title || !it.url || seen.has(it.url)) continue;
+        seen.add(it.url);
+        merged.push(it);
+        if (merged.length >= 4) break;
+      }
+      return merged;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function fetchLiveVerseQuotes(refLabels) {
+    const list = (refLabels || []).slice(0, 2);
+    if (!list.length || !window.DFWolReader?.fetchBibleChapterParsed || !window.DFWolBible?.parseScriptureReferences) {
+      return [];
+    }
+    const curLang = lang();
+    const out = [];
+    for (const lbl of list) {
+      try {
+        const parsed = window.DFWolBible.parseScriptureReferences(lbl, curLang);
+        if (!parsed.length) continue;
+        const r = parsed[0];
+        const vList = r.verses?.length ? r.verses : [1];
+        const chTask = window.DFWolReader.fetchBibleChapterParsed(r.bookNum, r.chapter, curLang);
+        const timeout = new Promise((res) => setTimeout(() => res(null), 3500));
+        const chData = await Promise.race([chTask, timeout]);
+        if (!chData?.verses) continue;
+        const matched = vList.map((vn) => chData.verses.find((v) => v.verse === vn)).filter(Boolean);
+        if (matched.length) {
+          const bName = window.DFWolBible.getBookDisplayName(chData.book, curLang);
+          out.push({
+            ref: `${bName} ${r.chapter}:${window.DFWolBible.formatVerseSpec(vList, true)}`,
+            text: matched.map((v) => `${vList.length > 1 ? v.verse + ". " : ""}${v.text}`).join(" ")
+          });
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  function findTopicMatch(low) {
+    let best = null;
     let bestScore = 0;
     for (const t of TOPIC_MAP) {
       let score = 0;
       t.keywords.forEach((kw) => {
-        if (low.includes(kw)) score += 2;
+        if (low.includes(norm(kw))) score += kw.length >= 6 ? 3 : 2;
       });
       if (score > bestScore) {
         bestScore = score;
-        bestTopic = t;
+        best = t;
+      }
+    }
+    return bestScore > 0 ? best : null;
+  }
+
+  function formatMarkdownReply(text) {
+    const escaped = esc(text || "");
+    return escaped
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|\s)\*([^*\n]+)\*(?=\s|[.,;:!?]|$)/g, "$1<em>$2</em>");
+  }
+
+  // ==========================================================================
+  // Moteur Principal de Réponse Conversationnelle Locale + Live Async
+  // ==========================================================================
+
+  async function processUserMessage(rawQuery) {
+    const q = cleanStr(rawQuery);
+    const low = norm(q);
+    const curLang = lang();
+    const ctx = getLiveContextSummary();
+
+    // 0. Salutations simples
+    if (/^(bonjour|salut|hello|hi|coucou|bonsoir|merci|super|genial|parfait)\b/.test(low) && q.split(/\s+/).length <= 5) {
+      const ctxHint = ctx.curArt
+        ? `Je vois que tu lis « ${ctx.curArt.title} ».`
+        : ctx.bibleLabel
+        ? `Je vois que tu es dans **${ctx.bibleLabel}**.`
+        : ctx.dtRef
+        ? `Le Texte du jour est **${ctx.dtRef}**.`
+        : "";
+      return {
+        text: low.includes("merci")
+          ? `Avec grand plaisir ! N'hésite pas dès que tu cherches un verset, une explication d'article, un plan de commentaire ou une réponse pleine de tact.`
+          : `Salut frère/sœur ! ${ctxHint} Pose-moi n'importe quelle question spirituelle ou dis-moi simplement ce que tu traverses aujourd'hui : je consulte la Bible, tes notes et WOL/JW pour toi.`,
+        verses: ["Proverbes 3:5, 6", "Psaume 119:105"],
+        followups: ctx.curArt
+          ? ["Résume l'article ouvert", "Commentaire de 30s sur cet article", "Quiz biblique"]
+          : ["Je suis inquiet, que lire ?", "Articles sur le pardon", "Idée de culte familial"]
+      };
+    }
+
+    // 1. Analyse de l'article ouvert (résumé, commentaire 30s, perles)
+    if (/(resum|synthese|commentaire|perle|30s|30 seconde)/.test(low) && (/(article|reunion|etude|tour de garde|cahier|ouvert|page|paragraphe)/.test(low) || (!findTopicMatch(low) && (ctx.curArt || ctx.curBibleData)))) {
+      if (low.includes("commentaire") && ctx.curArt?.paragraphs?.length) {
+        const pCandidates = ctx.curArt.paragraphs.filter((p) => p.text.length > 75 && !/^(\d+\.|CANTIQUE|EN BREF)/i.test(p.text));
+        const picked = pCandidates[0]?.text || ctx.curArt.paragraphs[1]?.text || ctx.curArt.plainText;
+        const sentences = picked.split(/(?<=[.!?])\s+/).filter((s) => s.length > 20);
+        const refs = window.DFWolBible?.parseScriptureReferences?.(picked, curLang) || [];
+        const comment = `${(sentences[0] || picked.slice(0, 140)).replace(/[.!?]+$/, "")}. ${refs[0] ? `Comme l'illustre ${refs[0].label}, ` : ""}cela nous encourage à appliquer pleinement ce principe dès cette semaine.`;
+        return {
+          text: `Voici une proposition de commentaire naturel (~30s) tirée de **« ${ctx.curArt.title} »** :\n\n« ${comment} »`,
+          verses: refs.slice(0, 3).map((r) => r.label),
+          followups: ["Résume l'article ouvert", "Extraire les perles"]
+        };
+      }
+      if (low.includes("perle") && (ctx.curBibleData || ctx.curArt)) {
+        const srcName = ctx.curBibleData ? ctx.bibleLabel : ctx.curArt.title;
+        const pool = ctx.curBibleData
+          ? ctx.curBibleData.verses.map((v) => `v.${v.verse} : ${v.text}`)
+          : (ctx.curArt.paragraphs || []).map((p) => p.text);
+        const needles = [/jehovah|jéhovah/i, /jesus|jésus|christ/i, /promet|promesse/i, /fidel|fidél|amour|humil|courage/i];
+        const pearls = pool.filter((line) => line.length > 35 && needles.some((rx) => rx.test(line))).slice(0, 4);
+        return {
+          text: pearls.length
+            ? `Voici **${pearls.length} perles spirituelles** extraites de **${srcName}** :\n\n${pearls.map((p, i) => `• **Perle ${i + 1} :** ${p.slice(0, 220)}${p.length > 220 ? "…" : ""}`).join("\n")}`
+            : `Ouvre un chapitre dans la Bible ou un article dans Réunions pour que j'en extraie des perles précises.`,
+          followups: ctx.curArt ? ["Commentaire de 30s", "Résume l'article ouvert"] : ["Quiz biblique"]
+        };
+      }
+      if (ctx.curArt) {
+        const words = (ctx.curArt.plainText || "").split(/\s+/).filter(Boolean).length;
+        const mins = Math.max(1, Math.round(words / 180));
+        const keyParas = (ctx.curArt.paragraphs || []).filter((p) => p.text.length > 55).slice(0, 3);
+        const artRefs = (window.DFWolBible?.parseScriptureReferences?.(ctx.curArt.plainText || "", curLang) || []).slice(0, 4).map((r) => r.label);
+        return {
+          text: `**Résumé de « ${ctx.curArt.title} »** (~${words} mots · ~${mins} min de lecture)\n\n${keyParas.map((p) => `• ${p.text.slice(0, 210)}…`).join("\n")}`,
+          verses: artRefs,
+          followups: ["Commentaire de 30s", "Extraire les perles"]
+        };
+      }
+      if (low.includes("texte du jour") || ctx.dtRef) {
+        const quote = document.getElementById("dt-scripture-quote")?.textContent?.trim() || "";
+        const comm = document.getElementById("dt-commentary-box")?.textContent?.trim() || "";
+        return {
+          text: `**Texte du jour (${ctx.dtRef})** : ${quote}\n\n${comm.slice(0, 280)}…`,
+          verses: ctx.dtRef ? [ctx.dtRef] : [],
+          followups: ["Je suis inquiet, que lire ?", "Quiz biblique"]
+        };
       }
     }
 
-    if (bestTopic && bestScore > 0) {
+    // 2. Relances contextuelles ("autre verset", "illustration", "articles", "objection", "commentaire")
+    const isFollowup =
+      q.length < 48 &&
+      !/(ouvert|cet article|cette page|ce chapitre)/.test(low) &&
+      /^(?:et |donne |autre|encore|plus|quelque|fais |cherche |trouve )?(?:des |d autres |d'autres |une? )?(illustration|exemple|articles|versets|commentaire)/i.test(low);
+    const activeTopic = convContext.lastTopicId ? TOPIC_MAP.find((t) => t.id === convContext.lastTopicId) : null;
+
+    if (isFollowup && activeTopic) {
+      if (low.includes("illustration") || low.includes("exemple")) {
+        return {
+          text: `Voici une illustration simple pour **${activeTopic.title}** :\n\n${activeTopic.illustration}`,
+          verses: activeTopic.verses.slice(0, 2),
+          followups: [`Articles sur ${activeTopic.title.split(" ")[0]}`, "Commentaire de 30s", "Autres versets"]
+        };
+      }
+      if (low.includes("article")) {
+        const arts = await fetchLiveArticlesForTopic(activeTopic.queries[0] || activeTopic.title);
+        return {
+          text: arts.length
+            ? `Voici les articles WOL/JW pertinents trouvés pour **${activeTopic.title}** :`
+            : `Je n'ai pas pu contacter WOL pour le moment, mais tu peux lancer directement cette recherche booléenne optimisée :`,
+          articles: arts,
+          verses: activeTopic.verses.slice(0, 3),
+          queries: activeTopic.queries,
+          followups: ["Donne une illustration", "Prière sur ce thème"]
+        };
+      }
+      if (low.includes("verset")) {
+        const extraRefs = activeTopic.verses.slice(2);
+        const quotes = await fetchLiveVerseQuotes(extraRefs);
+        return {
+          text: `Voici d'autres passages bibliques fortifiants sur **${activeTopic.title}** :`,
+          verseQuotes: quotes,
+          verses: activeTopic.verses,
+          followups: ["Articles sur ce thème", "Donne une illustration"]
+        };
+      }
+    }
+
+    // 3. Quiz biblique interactif directement dans le tchat
+    if (/(quiz|question biblique|teste moi|test biblique)/.test(low)) {
+      const qIdx = Math.floor(Math.random() * QUIZ_BANK.length);
       return {
-        reply: `**${bestTopic.title}**\n\n${bestTopic.advice}`,
-        verses: bestTopic.verses,
-        queries: bestTopic.queries,
-        recommendedSkill: "meditation-4step"
+        text: `C'est parti ! Voici une question biblique pour t'exercer :`,
+        quizIdx: qIdx,
+        followups: ["Une autre question de quiz", "Parle-moi d'un personnage"]
       };
     }
 
-    // 3. Correspondance personnage biblique ou glossaire
-    const matchedChar = CHARACTER_PROFILES.find((c) => low.includes(c.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
+    // 4. Stats de lecture & Carnet de notes personnel
+    if (/(statistique|stats|progres|progression|combien de chapitre|mes notes|mon carnet)/.test(low)) {
+      let totalCh = 0;
+      try {
+        const st = JSON.parse(localStorage.getItem("dfwol_studio_state_v3") || "{}");
+        Object.values(st.readingProgress || {}).forEach((arr) => {
+          if (Array.isArray(arr)) totalCh += arr.length;
+        });
+      } catch (_) {}
+      const remaining = Math.max(0, 1189 - totalCh);
+      const streak = window.DFWolStudy?.updateAndGetStreak ? window.DFWolStudy.updateAndGetStreak() : 1;
+      const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
+      const hls = window.DFWolReader?.getAllHighlights ? window.DFWolReader.getAllHighlights() : [];
+      const pct = ((totalCh / 1189) * 100).toFixed(1);
+      const daysAt3 = Math.ceil(remaining / 3);
+      return {
+        text: `**Ton bilan spirituel local :**\n• Lecture biblique : **${totalCh} / 1 189 chapitres (${pct}%)** · série de **${streak} jour(s)**\n• À 3 chapitres/jour, il te reste ~**${daysAt3} jours** pour boucler toute la Bible.\n• Carnet : **${notes.length} note(s)** et **${hls.length} passage(s) surligné(s)**.`,
+        verses: ["Psaume 1:2, 3", "Josué 1:8"],
+        followups: ["Plan d'exposé sur la persévérance", "Quiz biblique"]
+      };
+    }
+
+    // 5. Références bibliques directes saisies par l'utilisateur -> citation réelle NWT + articles
+    const directRefs = window.DFWolBible?.parseScriptureReferences?.(q, curLang) || [];
+    if (directRefs.length > 0) {
+      const labels = directRefs.map((r) => r.label);
+      convContext.lastRefs = labels;
+      convContext.lastBookNum = directRefs[0].bookNum;
+      const [quotes, arts] = await Promise.all([
+        fetchLiveVerseQuotes(labels),
+        fetchLiveArticlesForTopic(labels[0])
+      ]);
+      const notesMatch = (window.DFWolGetNotes ? window.DFWolGetNotes() : []).filter((n) =>
+        labels.some((lbl) => `${n.title} ${n.body}`.toLowerCase().includes(lbl.toLowerCase()))
+      );
+      const noteLine = notesMatch.length ? `\n\nTu as aussi une note personnelle intitulée « ${notesMatch[0].title} ».` : "";
+      return {
+        text: `Voici **${labels.join(", ")}** tiré de la *Traduction du monde nouveau*, avec des articles d'étude associés.${noteLine}`,
+        verseQuotes: quotes,
+        verses: labels,
+        articles: arts,
+        queries: labels,
+        followups: ["Comment appliquer ce verset ?", "Aperçu du livre"]
+      };
+    }
+
+    // 6. Objections de ministère & illustrations
+    if (/(objection|repondre si|que repondre|predication|porte a porte|pas le temps|ma religion|pourquoi.*souffrance|enfer|trinite|science|evolution)/.test(low)) {
+      const matchedObj = OBJECTIONS.find((o) => o.match.some((kw) => low.includes(kw))) || OBJECTIONS[2];
+      return {
+        text: `**Approche pleine de tact — « ${matchedObj.obj} »**\n\n${matchedObj.reply}`,
+        verses: [matchedObj.verse],
+        queries: [matchedObj.obj, matchedObj.verse],
+        followups: ["Autre objection courante", "Donne une illustration"]
+      };
+    }
+
+    // 7. Plan d'exposé / discours
+    if (/(plan|expose|discours|sujet|presentation)/.test(low)) {
+      const durMatch = low.match(/\b(5|10|15|20|30)\s*min/);
+      const mins = durMatch ? Number(durMatch[1]) : 10;
+      const cleanTopic = q.replace(/^(?:fais|prepare|cree|donne)?.*?(?:plan|expose|discours)\s*(?:de\s*\d+\s*min)?\s*(?:sur|pour)?/i, "").trim() || "Garder confiance en Jéhovah";
+      const topicHit = findTopicMatch(low);
+      const refList = topicHit ? topicHit.verses.slice(0, 3) : ["Proverbes 3:5, 6", "Philippiens 4:6, 7"];
+      const arts = await fetchLiveArticlesForTopic(cleanTopic);
+      return {
+        text: `**Canevas d'exposé (${mins} min) — « ${cleanTopic} »**\n1. **Introduction (${Math.max(1, Math.round(mins * 0.15))} min) :** Question d'actualité ou situation concrète pour éveiller l'intérêt.\n2. **Développement (${Math.max(3, Math.round(mins * 0.7))} min) :**\n   • Lire et expliquer **${refList[0]}**\n   • Illustration parlante tirée du quotidien\n   • Application pratique avec **${refList[1] || refList[0]}**\n3. **Conclusion (${Math.max(1, mins - Math.max(1, Math.round(mins * 0.15)) - Math.max(3, Math.round(mins * 0.7)))} min) :** Synthèse brève + invitation encourageante à agir cette semaine.`,
+        verses: refList,
+        articles: arts,
+        followups: ["Donne une illustration", "Articles sur ce sujet"]
+      };
+    }
+
+    // 8. Aide à la prière
+    if (/(comment prier|aide.*prier|priere struct)/.test(low)) {
+      return {
+        text: `**Modèle simple en 4 étapes pour enrichir ta prière (Matthieu 6:9-13) :**\n1. **Louange :** Remercie Jéhovah pour qui il est (sa patience, sa création, sa justice).\n2. **Gratitude ciblée :** Cite trois bienfaits précis vécus aujourd'hui.\n3. **Pardon & humilité :** Confie librement tes faiblesses et demande son esprit saint.\n4. **Besoins & intercession :** Prie pour tes défis, ta famille et nos frères dans le monde, toujours au nom de Jésus.`,
+        verses: ["Philippiens 4:6", "1 Jean 5:14", "Psaume 62:8"],
+        followups: ["Je suis inquiet, que lire ?", "Quiz biblique"]
+      };
+    }
+
+    // 9. Culte familial
+    if (/(culte familial|en famille|idee soiree)/.test(low)) {
+      const ideas = [
+        "**Portrait vivant :** Lisez ensemble l'histoire de **Ruth (chap. 1–2)** ou de **Daniel 6**, puis chacun nomme la qualité qu'il veut imiter cette semaine.",
+        "**Atelier ministère :** Choisissez 2 objections entendues récemment (ex : « Pourquoi Dieu permet-il la souffrance ? ») et exercez-vous en 30 secondes avec bienveillance.",
+        "**Chasse au trésor biblique :** En 5 min, chacun choisit un verset des **Psaumes** sur la création ou la joie et explique pourquoi il le touche."
+      ];
+      const pick = ideas[Math.floor(Math.random() * ideas.length)];
+      return {
+        text: `**Idée prête pour votre Culte familial :**\n\n${pick}`,
+        verses: ["Deutéronome 6:6, 7", "Psaume 1:1-3"],
+        followups: ["Une autre idée de culte familial", "Objection : Pourquoi le mal ?"]
+      };
+    }
+
+    // 10. Fiche de livre biblique (les 66 livres)
+    const books = window.DFWolBible?.BIBLE_BOOKS || [];
+    const matchedBook = books.find((b) => {
+      const fr = norm(b.nameFr || "");
+      const en = norm(b.nameEn || "");
+      return (fr.length >= 3 && new RegExp(`\\b${fr}\\b`).test(low)) || (en.length >= 3 && new RegExp(`\\b${en}\\b`).test(low));
+    });
+    if (matchedBook && (/(livre|apercu|intro|resum|qui a ecrit|redacteur|chapitre|parle)/.test(low) || q.split(/\s+/).length <= 3)) {
+      const bName = window.DFWolBible.getBookDisplayName(matchedBook, curLang);
+      const sheet = BOOK_SHEETS[matchedBook.num];
+      const test = matchedBook.num <= 39 ? "Écritures hébraïques" : "Écritures grecques";
+      convContext.lastBookNum = matchedBook.num;
+      const quotes = await fetchLiveVerseQuotes([`${bName} 1:1`]);
+      return {
+        text: sheet
+          ? `**Livre biblique : ${bName}** (${matchedBook.chapters} chapitres · ${test})\n• **Rédacteur & époque :** ${sheet.author} (${sheet.era})\n• **Thème central :** ${sheet.theme}\n• **Structure :** ${sheet.structure}`
+          : `**Livre biblique : ${bName}** — **${matchedBook.chapters} chapitre(s)** (${test}, livre n° ${matchedBook.num}). Tu peux ouvrir son aperçu complet ou commencer au chapitre 1 ci-dessous.`,
+        verseQuotes: quotes,
+        verses: [`${bName} 1:1`],
+        bookIntroNum: matchedBook.num,
+        queries: [`${bName} introduction plan livre`],
+        followups: ["Articles sur ce livre", "Quiz biblique"]
+      };
+    }
+
+    // 11. Profil de personnage biblique
+    const matchedChar = CHARACTER_PROFILES.find((c) => new RegExp(`\\b${norm(c.name)}\\b`).test(low));
     if (matchedChar) {
+      convContext.lastCharName = matchedChar.name;
+      const [quotes, arts] = await Promise.all([
+        fetchLiveVerseQuotes([matchedChar.verse]),
+        fetchLiveArticlesForTopic(`${matchedChar.name} foi exemple Bible`)
+      ]);
       return {
-        reply: `**Profil de ${matchedChar.name}** — *${matchedChar.trait}*\nÉpreuve : ${matchedChar.trial}\nLeçon : ${matchedChar.lesson}`,
+        text: `**Personnage biblique : ${matchedChar.name}** — *${matchedChar.trait}*\n• **Épreuve traversée :** ${matchedChar.trial}\n• **Leçon clé :** ${matchedChar.lesson}`,
+        verseQuotes: quotes,
         verses: [matchedChar.verse],
-        queries: [`${matchedChar.name} foi exemple fidélité`],
-        recommendedSkill: "character-profiles"
+        articles: arts,
+        queries: [`${matchedChar.name} imitons leur foi`],
+        followups: ["Autre personnage biblique", "Quiz biblique"]
       };
     }
 
-    const matchedGloss = GLOSSARY_TERMS.find((g) => low.includes(g.term.toLowerCase().split(" ")[0].normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
-    if (matchedGloss) {
+    // 12. Glossaire doctrinal
+    const matchedGloss = GLOSSARY_TERMS.find((g) => {
+      const head = norm(g.term.split("(")[0].split("/")[0].trim());
+      return head.length >= 3 && new RegExp(`\\b${head}\\b`).test(low);
+    });
+    if (matchedGloss && (/(que veut dire|signifie|definition|c est quoi|qu est ce|explique)/.test(low) || q.split(/\s+/).length <= 3)) {
+      const [quotes, arts] = await Promise.all([
+        fetchLiveVerseQuotes(matchedGloss.refs.slice(0, 1)),
+        fetchLiveArticlesForTopic(matchedGloss.term.split("(")[0].trim())
+      ]);
       return {
-        reply: `**${matchedGloss.term}** : ${matchedGloss.def}`,
+        text: `**${matchedGloss.term}**\n\n${matchedGloss.def}`,
+        verseQuotes: quotes,
         verses: matchedGloss.refs,
-        queries: [matchedGloss.term.split("(")[0].trim()],
-        recommendedSkill: "bible-glossary"
+        articles: arts,
+        followups: ["Articles sur ce sujet", "Autre question"]
       };
     }
 
-    // 4. Recherche dans les notes personnelles locales
-    const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
-    const matchingNotes = notes.filter((n) => `${n.title} ${n.body}`.toLowerCase().includes(q.toLowerCase())).slice(0, 2);
-    const words = q.replace(/[^\p{L}\p{N}\s-]/gu, "").trim().split(/\s+/).filter((w) => w.length > 2);
-    const wolQ = words.slice(0, 4).join(" & ");
+    // 13. Thème spirituel / question de vie / recherche d'articles & versets en direct
+    const topicMatch = findTopicMatch(low);
+    if (topicMatch) {
+      convContext.lastTopicId = topicMatch.id;
+      convContext.lastRefs = topicMatch.verses;
+      const searchHint = /(article|trouve|cherche|etude|pub)/.test(low) ? topicMatch.queries[0] : topicMatch.queries[0];
+      const [quotes, arts] = await Promise.all([
+        fetchLiveVerseQuotes(topicMatch.verses.slice(0, 2)),
+        fetchLiveArticlesForTopic(searchHint)
+      ]);
+      const notesMatch = (window.DFWolGetNotes ? window.DFWolGetNotes() : []).filter((n) =>
+        topicMatch.keywords.some((kw) => norm(`${n.title} ${n.body}`).includes(norm(kw)))
+      );
+      const noteNote = notesMatch.length ? `\n\n📝 *Note personnelle retrouvée :* « ${notesMatch[0].title} ».` : "";
+      return {
+        text: `**${topicMatch.title}**\n\n${topicMatch.advice}${noteNote}`,
+        verseQuotes: quotes,
+        verses: topicMatch.verses,
+        articles: arts,
+        queries: topicMatch.queries,
+        followups: ["Donne une illustration", "Autres versets sur ce thème", "Plan d'exposé 10 min"]
+      };
+    }
 
-    let noteText = matchingNotes.length
-      ? `\n\nDans tes propres notes, tu as déjà noté : « ${matchingNotes[0].title} ».`
-      : "";
+    // 14. Requête libre générale : recherche en direct dans les notes locales + WOL & JW.org !
+    const cleanedWords = q
+      .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !/^(trouve|cherche|moi|des|les|une|sur|pour|que|dit|bible|article|articles|comment|pourquoi|est)$/i.test(w));
+    const searchQ = cleanedWords.slice(0, 5).join(" ") || q;
+    convContext.lastQuery = searchQ;
+
+    const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
+    const matchingNotes = notes.filter((n) => norm(`${n.title} ${n.body}`).includes(norm(searchQ))).slice(0, 2);
+    const liveArticles = await fetchLiveArticlesForTopic(searchQ);
+    const suggestedBool = cleanedWords.length >= 2 ? cleanedWords.slice(0, 4).join(" & ") : searchQ;
+
+    let body = liveArticles.length
+      ? `Voici ce que j'ai trouvé en direct sur JW.org & WOL pour **« ${searchQ} »** :`
+      : `Voici des pistes de recherche ciblées pour approfondir **« ${searchQ} »** dans la Bible et sur WOL :`;
+    if (matchingNotes.length) {
+      body += `\n\n📝 Dans ton carnet personnel, tu as déjà écrit sur ce sujet : « **${matchingNotes[0].title}** ».`;
+    }
 
     return {
-      reply: `Voici comment explorer « ${q} » avec les ressources bibliques : je t'ai préparé des requêtes WOL/JW prêtes à lancer ainsi que des versets pivots pour méditer.${noteText}`,
-      verses: ["Proverbes 2:1-5", "Psaume 119:105", "Romains 15:4"],
-      queries: [wolQ || q, `"${q}"`, `${words[0] || q} & Jéhovah`].filter(Boolean),
-      recommendedSkill: "wol-query-builder"
+      text: body,
+      articles: liveArticles,
+      verses: ["Proverbes 2:1-5", "Psaume 119:105", "Actes 17:11"],
+      queries: [suggestedBool, `"${searchQ}"`],
+      followups: ["Plan d'exposé sur " + searchQ, "Quiz biblique"]
     };
   }
 
   // ==========================================================================
-  // Registre Officiel des 32 Capacités Actives de Spiritual Brother
+  // Rendu & Gestionnaire du Tchat (#study-view-brother)
   // ==========================================================================
 
-  const SKILLS = [
-    // Catégorie : recherche (6)
-    { id: "article-finder", cat: "recherche", icon: "🔎", name: "Rechercheur d'articles ciblés", desc: "Trouve des articles adaptés à ton besoin ou sujet précis." },
-    { id: "scripture-suggester", cat: "recherche", icon: "📖", name: "Suggéreur de versets par situation", desc: "12 situations de vie → versets directs dans le volet étude." },
-    { id: "personal-recs", cat: "recherche", icon: "🧭", name: "Recommandations d'après vos notes", desc: "Analyse vos notes, marque-pages et surlignages localement." },
-    { id: "notes-synth", cat: "recherche", icon: "🗂️", name: "Synthétiseur de mes notes", desc: "Regroupe vos notes et extrait tous vos versets favoris." },
-    { id: "wol-query-builder", cat: "recherche", icon: "⚡", name: "Constructeur booléen WOL", desc: "Assemble ET, OU, guillemets, proximité et titre # sans erreur." },
-    { id: "daily-text-brief", cat: "recherche", icon: "☀️", name: "Synthèse locale Texte du jour", desc: "Extrait l'idée force et une application du Texte du jour." },
-
-    // Catégorie : bible (6)
-    { id: "book-sheets", cat: "bible", icon: "📜", name: "Fiches des livres bibliques", desc: "Rédacteur, époque, thème central et structure par livre." },
-    { id: "chapter-analyzer", cat: "bible", icon: "🔬", name: "Analyseur du chapitre ouvert", desc: "Compte mots, thèmes clés et durée du chapitre affiché." },
-    { id: "crossref-chains", cat: "bible", icon: "🔗", name: "Chaînes thématiques de renvois", desc: "Parcours de 5–6 versets liés sur un grand enseignement." },
-    { id: "verse-lens", cat: "bible", icon: "💎", name: "Loupe d'étude sur un verset", desc: "Examine un verset : principe, question de méditation & audio." },
-    { id: "quality-comparator", cat: "bible", icon: "⚖️", name: "Comparateur de qualités chrétiennes", desc: "Distingue douceur/faiblesse, crainte/peur, zèle/précipitation." },
-    { id: "bible-glossary", cat: "bible", icon: "📚", name: "Glossaire biblique express", desc: "18 termes essentiels définis simplement avec versets." },
-
-    // Catégorie : meditation (6)
-    { id: "quick-encouragement", cat: "meditation", icon: "🕊️", name: "Encouragement spirituel immédiat", desc: "Selon votre émotion actuelle : réconfort + verset + lecture vocale." },
-    { id: "meditation-4step", cat: "meditation", icon: "🪷", name: "Atelier méditation en 4 étapes", desc: "Jéhovah → Christ → Foi → Geste concret + enregistrement note." },
-    { id: "prayer-guide", cat: "meditation", icon: "🙏", name: "Guide de prière structurée", desc: "Canevas complet : louange, gratitude, besoins et intercession." },
-    { id: "verse-flashcards", cat: "meditation", icon: "🃏", name: "Mémorisation active (Flashcards)", desc: "Entraînement par indices progressifs sur les versets clés." },
-    { id: "daily-challenge", cat: "meditation", icon: "🌟", name: "Défi spirituel quotidien", desc: "Une action concrète et encourageante pour aujourd'hui." },
-    { id: "family-worship", cat: "meditation", icon: "👨‍👩‍👧‍👦", name: "Planificateur de culte familial", desc: "Idées d'ateliers variés avec versets et minuteur." },
-
-    // Catégorie : reunions (6)
-    { id: "comment-30s", cat: "reunions", icon: "💬", name: "Générateur de commentaire 30s", desc: "Bâtit localement un commentaire naturel (~55 mots) sur l'article ouvert." },
-    { id: "pearl-extractor", cat: "reunions", icon: "💠", name: "Extracteur de perles spirituelles", desc: "Repère Jéhovah, promesses et principes dans le texte affiché." },
-    { id: "article-summary", cat: "reunions", icon: "⏱️", name: "Résumeur & temps de lecture", desc: "Sélectionne les phrases maîtresses et estime la durée de lecture." },
-    { id: "talk-outliner", cat: "reunions", icon: "🎙️", name: "Plan d'exposé 5 / 10 / 15 min", desc: "Structure introduction, points principaux, versets et conclusion." },
-    { id: "speech-timer", cat: "reunions", icon: "⏲️", name: "Chronomètre & débit d'exposé", desc: "Calcule la durée à 130 mots/min avec vrai chronomètre." },
-    { id: "meeting-prep-checklist", cat: "reunions", icon: "✅", name: "Check-list préparation réunion", desc: "Suivi mémorisé des 6 étapes pour arriver serein à la salle." },
-
-    // Catégorie : ministere (4)
-    { id: "ministry-starters", cat: "ministere", icon: "🚪", name: "Brise-glace pour le ministère", desc: "Approches naturelles : porte-à-porte, rue, téléphone, collègues." },
-    { id: "objection-responder", cat: "ministere", icon: "🤝", name: "Réponses pleines de tact", desc: "14 objections fréquentes avec pont bienveillant + verset." },
-    { id: "illustrations-bank", cat: "ministere", icon: "💡", name: "Banque d'illustrations & analogies", desc: "12 comparaisons parlantes pour enseigner simplement." },
-    { id: "return-visit-3step", cat: "ministere", icon: "🔁", name: "Nouvelle visite en 3 étapes", desc: "Prépare rappel, verset clé et question ouverte pour la prochaine fois." },
-
-    // Catégorie : parcours (4)
-    { id: "bible-quiz", cat: "parcours", icon: "🏆", name: "Quiz biblique interactif", desc: "25 questions corrigées avec versets vérifiables en 1 clic." },
-    { id: "character-profiles", cat: "parcours", icon: "👤", name: "Profils de personnages bibliques", desc: "15 témoins de foi : qualité, épreuve, leçon & verset pivot." },
-    { id: "bible-timeline", cat: "parcours", icon: "⏳", name: "Frise chronologique biblique", desc: "12 grandes époques de la Création jusqu'au Paradis promis." },
-    { id: "stats-reading-plan", cat: "parcours", icon: "📊", name: "Statistiques & plan personnalisé", desc: "Projection exacte de fin de lecture selon ton rythme quotidien." }
-  ];
-
-  // ==========================================================================
-  // Rendu Interactif de Chaque Capacité Active
-  // ==========================================================================
-
-  function renderSkillWorkspace(skillId) {
-    const curArt = window.DFWolReader?.getCurrentArticleData?.();
-    const curBible = window.DFWolReader?.getCurrentBibleState?.();
-
-    switch (skillId) {
-      case "article-finder":
-        return `
-          <h4>🔎 Rechercheur d'articles ciblés</h4>
-          <p class="card-helper-text">Choisis un thème ou tape ton besoin ci-dessous pour générer instantanément les meilleures pistes sur WOL & JW.org.</p>
-          <div class="sb-topics-grid">
-            ${TOPIC_MAP.map((t) => `
-              <div class="sb-mini-card">
-                <strong>${esc(t.title)}</strong>
-                <div class="btn-group" style="margin-top:0.4rem;">
-                  ${t.queries.slice(0, 2).map((q) => `<button type="button" class="btn-secondary btn-xs" data-sb-search="${esc(q)}">🔍 ${esc(q.slice(0, 28))}</button>`).join("")}
-                </div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "scripture-suggester":
-        return `
-          <h4>📖 Suggéreur de versets par situation</h4>
-          <p class="card-helper-text">Clique sur n'importe quel verset pour l'ouvrir avec ses notes & renvois dans le volet Étude individuelle.</p>
-          <div class="sb-topics-grid">
-            ${TOPIC_MAP.map((t) => `
-              <div class="sb-mini-card">
-                <strong>${esc(t.title)}</strong>
-                <p style="font-size:0.84rem;color:var(--text-secondary);margin:0.25rem 0 0.45rem;">${esc(t.advice)}</p>
-                <div class="btn-group">${renderScriptureChips(t.verses)}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "personal-recs": {
-        const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
-        const hls = window.DFWolReader?.getAllHighlights ? window.DFWolReader.getAllHighlights() : [];
-        const bms = window.DFWolStudy ? Object.values(window.DFWolStudy.getBookmarks()) : [];
-        const corpus = `${notes.map((n) => `${n.title} ${n.body}`).join(" ")} ${hls.map((h) => h.quote).join(" ")}`.toLowerCase();
-        const scoredTopics = TOPIC_MAP.map((t) => ({
-          topic: t,
-          hits: t.keywords.reduce((acc, kw) => acc + (corpus.includes(kw) ? 1 : 0), 0)
-        })).sort((a, b) => b.hits - a.hits);
-        const top = scoredTopics.slice(0, 3);
-        return `
-          <h4>🧭 Recommandations personnalisées (100 % local)</h4>
-          <p class="card-helper-text">Basé sur tes <strong>${notes.length}</strong> notes, <strong>${hls.length}</strong> surlignages et <strong>${bms.length}</strong> marque-pages.</p>
-          ${top.map(({ topic, hits }) => `
-            <div class="sb-mini-card" style="margin-bottom:0.65rem;">
-              <div style="display:flex;justify-content:space-between;gap:0.5rem;">
-                <strong>${esc(topic.title)}</strong>
-                <span class="badge badge-blue">${hits > 0 ? `${hits} affinité(s)` : "Découverte"}</span>
-              </div>
-              <p style="font-size:0.85rem;margin:0.35rem 0;">${esc(topic.advice)}</p>
-              <div class="btn-group">
-                ${renderScriptureChips(topic.verses.slice(0, 3))}
-                <button type="button" class="btn-secondary btn-xs" data-sb-search="${esc(topic.queries[0])}">🔍 Articles WOL</button>
-              </div>
-            </div>
-          `).join("")}
-        `;
-      }
-
-      case "notes-synth": {
-        const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
-        const allText = notes.map((n) => `${n.title} ${n.body}`).join("\n");
-        const refs = window.DFWolBible?.parseScriptureReferences?.(allText, lang()) || [];
-        const uniqueRefs = Array.from(new Set(refs.map((r) => r.label)));
-        const tagCounts = {};
-        notes.forEach((n) => {
-          const t = n.tag || "Étude Perso";
-          tagCounts[t] = (tagCounts[t] || 0) + 1;
-        });
-        return `
-          <h4>🗂️ Synthétiseur de mes notes (${notes.length})</h4>
-          <div class="btn-group" style="margin-bottom:0.75rem;">
-            ${Object.entries(tagCounts).map(([t, c]) => `<span class="badge badge-blue">${esc(t)} : ${c}</span>`).join("") || "<small>Aucune note encore.</small>"}
-          </div>
-          <p><strong>Versets cités dans ton carnet (${uniqueRefs.length}) :</strong></p>
-          <div class="btn-group" style="margin-bottom:0.8rem;">
-            ${uniqueRefs.length ? renderScriptureChips(uniqueRefs.slice(0, 18)) : "<small>Ajoute des références (ex: Ps 83:18) dans tes notes pour les relier ici.</small>"}
-          </div>
-          <button type="button" class="btn-secondary btn-xs" id="sb-copy-notes-synth">📋 Copier la synthèse du carnet</button>
-        `;
-      }
-
-      case "wol-query-builder":
-        return `
-          <h4>⚡ Constructeur booléen WOL</h4>
-          <div class="sb-form-grid">
-            <label>Mot(s) obligatoires (ET) <input type="text" id="sb-qb-and" class="input-compact" placeholder="ex: foi endurance" /></label>
-            <label>Au moins un de (OU) <input type="text" id="sb-qb-or" class="input-compact" placeholder="ex: joie paix" /></label>
-            <label>Expression exacte ("…") <input type="text" id="sb-qb-exact" class="input-compact" placeholder="ex: amour fidèle" /></label>
-            <label>Mot de titre (#) <input type="text" id="sb-qb-title" class="input-compact" placeholder="ex: Questions des lecteurs" /></label>
-            <label>Exclure (!) <input type="text" id="sb-qb-not" class="input-compact" placeholder="ex: ancien" /></label>
-          </div>
-          <div class="sb-code-preview" id="sb-qb-output" style="margin:0.65rem 0;">Prévisualisation de la requête WOL…</div>
-          <div class="btn-group">
-            <button type="button" class="btn-primary btn-xs" id="sb-qb-run">🔍 Lancer dans Recherche Totale</button>
-            <button type="button" class="btn-secondary btn-xs" id="sb-qb-copy">📋 Copier</button>
-          </div>
-        `;
-
-      case "daily-text-brief": {
-        const ref = document.getElementById("dt-scripture-ref-btn")?.textContent?.trim() || "Texte du jour";
-        const quote = document.getElementById("dt-scripture-text")?.textContent?.trim() || "";
-        const comm = document.getElementById("dt-commentary-text")?.textContent?.trim() || "";
-        const sentences = comm.split(/(?<=[.!?])\s+/).filter((s) => s.length > 25);
-        const keyIdea = sentences[0] || "Ouvre d'abord le Texte du jour sur l'Accueil pour l'analyser ici.";
-        const takeaway = sentences[sentences.length - 1] || "";
-        return `
-          <h4>☀️ Synthèse locale du Texte du jour</h4>
-          <div class="sb-mini-card">
-            <span class="badge badge-blue">${esc(ref)}</span>
-            ${quote ? `<blockquote class="dt-quote" style="margin:0.5rem 0;">${esc(quote)}</blockquote>` : ""}
-            <p><strong>Idée maîtresse :</strong> ${esc(keyIdea)}</p>
-            ${takeaway && takeaway !== keyIdea ? `<p style="margin-top:0.4rem;"><strong>Application pratique :</strong> ${esc(takeaway)}</p>` : ""}
-            <div class="btn-group" style="margin-top:0.5rem;">
-              ${ref && ref !== "Texte du jour" ? renderScriptureChips([ref]) : ""}
-              ${(quote || keyIdea) ? `<button type="button" class="btn-secondary btn-xs" id="sb-dt-speak-btn">🗣️ Lire avec Vivienne</button>` : ""}
-            </div>
-          </div>
-        `;
-      }
-
-      case "book-sheets": {
-        const allBooks = window.DFWolBible?.BIBLE_BOOKS || [];
-        const sheetByNum = new Map(BOOK_SHEETS.map((bs) => [bs.num, bs]));
-        const curLang = lang();
-        return `
-          <h4>📜 Fiches panoramiques des 66 livres bibliques</h4>
-          <input type="search" id="sb-books-filter" class="input-compact" placeholder="Filtrer un livre (Genèse, Psaumes, Matthieu, Révélation…)" style="margin-bottom:0.65rem;" />
-          <div class="sb-topics-grid" id="sb-books-grid">
-            ${allBooks.map((b) => {
-              const name = window.DFWolBible.getBookDisplayName(b, curLang);
-              const meta = sheetByNum.get(b.num);
-              const testamentLabel = b.num <= 39 ? "Écritures hébraïques" : "Écritures grecques";
-              return `
-                <div class="sb-mini-card sb-book-card" data-bname="${esc(name.toLowerCase())}">
-                  <div style="display:flex;justify-content:space-between;gap:0.4rem;">
-                    <strong>${b.num}. ${esc(name)}</strong>
-                    <small>${b.chapters} ch.</small>
-                  </div>
-                  <small style="color:var(--jw-blue-link);">${esc(meta ? `${meta.author} · ${meta.era}` : testamentLabel)}</small>
-                  ${meta ? `<p style="font-size:0.84rem;margin:0.3rem 0;">${esc(meta.theme)}</p><small style="display:block;color:var(--text-secondary);margin-bottom:0.4rem;">${esc(meta.structure)}</small>` : `<p style="font-size:0.82rem;color:var(--text-secondary);margin:0.3rem 0 0.45rem;">Livre n° ${b.num} · ${esc(testamentLabel)} (${b.chapters} chapitres).</p>`}
-                  <div class="btn-group">
-                    <button type="button" class="btn-secondary btn-xs" data-sb-book-intro="${b.num}">📘 Aperçu du livre</button>
-                    <button type="button" class="btn-primary btn-xs" data-sb-open-ref="${esc(name)} 1:1">📖 Ouvrir ch. 1</button>
-                  </div>
-                </div>
-              `;
-            }).join("")}
-          </div>
-        `;
-      }
-
-      case "chapter-analyzer": {
-        const pData = curBible?.primaryData;
-        if (!pData?.verses?.length) {
-          return `
-            <h4>🔬 Analyseur du chapitre ouvert</h4>
-            <p class="card-helper-text">Aucun chapitre biblique n'est chargé pour le moment.</p>
-            <button type="button" class="btn-primary btn-xs" data-sb-open-ref="Psaume 83:18">📖 Charger Psaume 83</button>
-          `;
-        }
-        const bName = window.DFWolBible.getBookDisplayName(pData.book, pData.lang || lang());
-        const fullTxt = pData.verses.map((v) => v.text).join(" ");
-        const words = fullTxt.split(/\s+/).filter(Boolean);
-        const stopWords = new Set(["dans", "pour", "avec", "nous", "vous", "leurs", "tout", "tous", "cette", "mais", "qui", "que", "est", "sont", "les", "des", "une", "par", "pas", "sur", "aux", "ils", "elle", "son", "ses", "mon", "ton", "car", "comme", "plus", "that", "with", "this", "from", "have", "your", "they", "will", "were", "when"]);
-        const freq = new Map();
-        words.forEach((w) => {
-          const cleanW = w.toLowerCase().replace(/[^\p{L}]/gu, "");
-          if (cleanW.length >= 4 && !stopWords.has(cleanW)) {
-            freq.set(cleanW, (freq.get(cleanW) || 0) + 1);
-          }
-        });
-        const topKeywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        const readSec = Math.round((words.length / 150) * 60);
-        return `
-          <h4>🔬 Analyse de ${esc(bName)} ${pData.chapter}</h4>
-          <div class="btn-group" style="margin-bottom:0.65rem;">
-            <span class="badge badge-blue">${pData.verses.length} versets</span>
-            <span class="badge badge-blue">${words.length} mots</span>
-            <span class="badge badge-blue">~${Math.max(1, Math.round(readSec / 60))} min de lecture</span>
-          </div>
-          <p><strong>Mots clés dominants :</strong></p>
-          <div class="btn-group" style="margin-bottom:0.7rem;">
-            ${topKeywords.map(([w, c]) => `<button type="button" class="pill-btn pill-xs" data-sb-search="${esc(w)}">${esc(w)} (${c})</button>`).join("")}
-          </div>
-          <p><strong>Premier & dernier verset :</strong></p>
-          <p class="card-helper-text"><strong>v.${pData.verses[0].verse}</strong> : ${esc(pData.verses[0].text)}</p>
-          <p class="card-helper-text"><strong>v.${pData.verses[pData.verses.length - 1].verse}</strong> : ${esc(pData.verses[pData.verses.length - 1].text)}</p>
-        `;
-      }
-
-      case "crossref-chains": {
-        const chains = [
-          { title: "Nom divin & relation avec Dieu", refs: ["Exode 3:15", "Psaume 83:18", "Proverbes 18:10", "Joël 2:32", "Jean 17:6, 26"] },
-          { title: "Promesse du Royaume sur la Terre", refs: ["Genèse 1:28", "Psaume 37:11, 29", "Daniel 2:44", "Matthieu 6:9, 10", "Révélation 21:3, 4"] },
-          { title: "La Rançon de Jésus Christ", refs: ["Genèse 3:15", "Isaïe 53:5", "Matthieu 20:28", "Jean 3:16", "Romains 5:8"] },
-          { title: "Paix & Confiance dans les épreuves", refs: ["Psaume 23:1-4", "Isaïe 41:10", "Matthieu 6:33, 34", "Philippiens 4:6, 7", "1 Pierre 5:7"] }
-        ];
-        return `
-          <h4>🔗 Chaînes thématiques de renvois bibliques</h4>
-          ${chains.map((c) => `
-            <div class="sb-mini-card" style="margin-bottom:0.65rem;">
-              <strong>${esc(c.title)}</strong>
-              <div class="btn-group" style="margin-top:0.45rem;">${renderScriptureChips(c.refs)}</div>
-            </div>
-          `).join("")}
-        `;
-      }
-
-      case "verse-lens":
-        return `
-          <h4>💎 Loupe d'étude sur un verset</h4>
-          <div class="btn-group" style="margin-bottom:0.6rem;">
-            <input type="text" id="sb-lens-input" class="input-compact" placeholder="Ex: Psaume 83:18 ou Romains 12:12" value="Psaume 83:18" />
-            <button type="button" class="btn-primary btn-xs" id="sb-lens-open">Ouvrir dans le volet Étude</button>
-          </div>
-          <div class="sb-mini-card">
-            <p><strong>4 questions automatiques pour tout verset :</strong></p>
-            <ul style="margin:0.35rem 0 0 1.2rem;font-size:0.88rem;line-height:1.5;">
-              <li>Qui parle à qui, et dans quel contexte ?</li>
-              <li>Quelle qualité de Jéhovah ou du Christ ressort ?</li>
-              <li>Quel principe reste éternellement valable aujourd'hui ?</li>
-              <li>À qui ou comment appliquer ce principe cette semaine ?</li>
-            </ul>
-          </div>
-        `;
-
-      case "quality-comparator": {
-        const pairs = [
-          { a: "Douceur (Praütês)", b: "Faiblesse", diff: "La douceur biblique est une force maîtrisée sous le contrôle de Dieu (comme Moïse ou Jésus), jamais de la lâcheté.", refs: ["Matthieu 11:29", "Galates 5:23"] },
-          { a: "Crainte révérencielle", b: "Terreur morbide", diff: "Craindre Jéhovah signifie l'aimer et le respecter assez pour ne pas vouloir le peiner — cela libère de la peur humaine.", refs: ["Proverbes 29:25", "1 Jean 4:18"] },
-          { a: "Humilité véritable", b: "Dévalorisation de soi", diff: "L'humilité reconnaît la grandeur de Dieu tout en sachant que notre vie a un immense prix à ses yeux.", refs: ["Matthieu 10:29-31", "Philippiens 2:3"] },
-          { a: "Pardon volontaire", b: "Naïveté ou approbation du mal", diff: "Pardonner libère notre propre cœur de l'amertume, tout en conservant discernement et limites saines.", refs: ["Colossiens 3:13", "Proverbes 22:3"] }
-        ];
-        return `
-          <h4>⚖️ Comparateur de qualités chrétiennes</h4>
-          <div class="sb-topics-grid">
-            ${pairs.map((p) => `
-              <div class="sb-mini-card">
-                <strong>${esc(p.a)} ≠ ${esc(p.b)}</strong>
-                <p style="font-size:0.85rem;margin:0.35rem 0;">${esc(p.diff)}</p>
-                <div class="btn-group">${renderScriptureChips(p.refs)}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-      }
-
-      case "bible-glossary":
-        return `
-          <h4>📚 Glossaire biblique express (${GLOSSARY_TERMS.length} termes)</h4>
-          <input type="search" id="sb-glossary-filter" class="input-compact" placeholder="Filtrer un mot (rançon, âme, présence, Géhenne…)" style="margin-bottom:0.65rem;" />
-          <div id="sb-glossary-list" class="sb-topics-grid">
-            ${GLOSSARY_TERMS.map((g) => `
-              <div class="sb-mini-card sb-glossary-item" data-gterm="${esc(g.term.toLowerCase())}">
-                <strong>${esc(g.term)}</strong>
-                <p style="font-size:0.84rem;margin:0.25rem 0 0.45rem;">${esc(g.def)}</p>
-                <div class="btn-group">${renderScriptureChips(g.refs)}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "quick-encouragement": {
-        const moods = [
-          { k: "fatigue", label: "😩 Fatigué", text: "Tu n'as pas à tout porter seul aujourd'hui. Jéhovah te demande ta fidélité de ce jour, pas une force surhumaine.", verse: "Isaïe 40:29" },
-          { k: "inquiet", label: "😟 Inquiet", text: "Un seul souffle calme vers Dieu vaut mieux que cent scénarios sombres dans la tête. Remets-lui cette préoccupation maintenant.", verse: "Psaume 55:22" },
-          { k: "seul", label: "🫂 Seul", text: "Même si personne ne mesure ce que tu traverses intérieurement, le Berger te connaît par ton nom et compte tes larmes.", verse: "Psaume 56:8" },
-          { k: "joyeux", label: "😊 Reconnaissant", text: "Profite de cette belle journée pour remercier Jéhovah nommément et partager une phrase encourageante à quelqu'un !", verse: "1 Thessaloniciens 5:18" }
-        ];
-        return `
-          <h4>🕊️ Encouragement spirituel du moment</h4>
-          <div class="sb-topics-grid">
-            ${moods.map((m, i) => `
-              <div class="sb-mini-card">
-                <strong>${m.label}</strong>
-                <p style="font-size:0.86rem;margin:0.35rem 0;">${esc(m.text)}</p>
-                <div class="btn-group">
-                  ${renderScriptureChips([m.verse])}
-                  <button type="button" class="btn-secondary btn-xs" data-sb-speak-mood="${i}">🗣️ Écouter</button>
-                </div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-      }
-
-      case "meditation-4step":
-        return `
-          <h4>🪷 Atelier de méditation en 4 étapes</h4>
-          <div class="sb-form-grid">
-            <label>Passage ou thème étudié <input type="text" id="sb-med-ref" class="input-compact" placeholder="Ex: Psaume 23 ou texte d'aujourd'hui" /></label>
-            <label>1. Qu'est-ce que cela m'apprend sur Jéhovah ? <textarea id="sb-med-1" rows="2" class="input-compact" placeholder="Ses qualités, sa patience, sa justice…"></textarea></label>
-            <label>2. Quel lien avec Jésus Christ ou le Royaume ? <textarea id="sb-med-2" rows="2" class="input-compact" placeholder="Comment l'exemple ou le règne de Christ l'illustre ?"></textarea></label>
-            <label>3. Comment cela fortifie-t-il ma foi ou mon espérance ? <textarea id="sb-med-3" rows="2" class="input-compact"></textarea></label>
-            <label>4. Quel petit geste concret vais-je poser cette semaine ? <textarea id="sb-med-4" rows="2" class="input-compact"></textarea></label>
-          </div>
-          <button type="button" class="btn-primary btn-xs" id="sb-med-save-note" style="margin-top:0.55rem;">📝 Enregistrer dans mon Carnet de Notes</button>
-        `;
-
-      case "prayer-guide":
-        return `
-          <h4>🙏 Guide de prière structurée</h4>
-          <div class="sb-topics-grid">
-            <div class="sb-mini-card"><strong>1. Louange & Sainteté</strong><p>Reconnais qui est Jéhovah : sa sagesse dans la création, sa patience et sa souveraineté (Psaume 104:24).</p></div>
-            <div class="sb-mini-card"><strong>2. Gratitude ciblée</strong><p>Remercie pour 3 bénédictions précises vécues aujourd'hui, petites ou grandes (Psaume 107:1).</p></div>
-            <div class="sb-mini-card"><strong>3. Pardon & Humilité</strong><p>Exprime sincèrement tes erreurs et demande son aide pour corriger un trait (Psaume 139:23, 24).</p></div>
-            <div class="sb-mini-card"><strong>4. Demandes & Intercession</strong><p>Prie pour ta famille, les frères persécutés, ta force spirituelle, toujours au nom de Jésus (Philippiens 4:6 ; Jean 14:13).</p></div>
-          </div>
-        `;
-
-      case "verse-flashcards": {
-        const cards = [
-          { ref: "Psaume 83:18", text: "Que l'on sache que toi, dont le nom est Jéhovah, tu es, toi seul, le Très-Haut sur toute la terre !" },
-          { ref: "Jean 17:3", text: "Ceci signifie la vie éternelle : qu'ils apprennent à te connaître, toi, le seul vrai Dieu, et celui que tu as envoyé, Jésus Christ." },
-          { ref: "Proverbes 3:5, 6", text: "Fais confiance à Jéhovah de tout ton cœur et ne t'appuie pas sur ton intelligence. Dans toutes tes voies, tiens compte de lui, et il rendra droits tes sentiers." },
-          { ref: "Isaïe 41:10", text: "N'aie pas peur, car je suis avec toi. Ne t'inquiète pas, car je suis ton Dieu. Je te rendrai fort, oui, je t'aiderai." },
-          { ref: "Philippiens 4:6, 7", text: "Ne vous inquiétez de rien, mais en tout, par la prière et la supplication avec des remerciements, faites connaître vos requêtes à Dieu ; et la paix de Dieu gardera vos cœurs." },
-          { ref: "Révélation 21:4", text: "Et il essuiera toute larme de leurs yeux, et la mort n'existera plus ; il n'y aura plus ni deuil, ni cri, ni douleur." }
-        ];
-        const card = cards[flashcardIdx % cards.length];
-        const hintWords = card.text.split(" ").map((w) => w[0] + "•".repeat(Math.max(1, w.length - 1))).join(" ");
-        return `
-          <h4>🃏 Mémorisation active (${(flashcardIdx % cards.length) + 1}/${cards.length})</h4>
-          <div class="sb-mini-card" style="text-align:center;padding:1.1rem;">
-            <span class="badge badge-blue">${esc(card.ref)}</span>
-            <p style="font-size:1rem;margin:0.8rem 0;line-height:1.55;">
-              ${flashcardStep === 0 ? "<em>Essaie de réciter ce verset à voix haute avant d'afficher l'indice ou le texte…</em>" : flashcardStep === 1 ? esc(hintWords) : `« ${esc(card.text)} »`}
-            </p>
-            <div class="btn-group" style="justify-content:center;">
-              <button type="button" class="btn-secondary btn-xs" id="sb-fc-hint">💡 Indice initiales</button>
-              <button type="button" class="btn-primary btn-xs" id="sb-fc-reveal">👁️ Révéler</button>
-              <button type="button" class="btn-secondary btn-xs" id="sb-fc-next">Suivant →</button>
-            </div>
-          </div>
-        `;
-      }
-
-      case "daily-challenge": {
-        const challenges = [
-          "Envoie un bref message encourageant à un frère ou une sœur âgé(e) ou isolé(e).",
-          "Lis un chapitre des Psaumes lentement en identifiant deux raisons de louer Jéhovah.",
-          "Avant de répondre dans une discussion tendue aujourd'hui, compte 3 secondes et applique Proverbes 15:1.",
-          "Remercie Jéhovah dans ta prière du soir pour trois bénédictions précises sans rien demander d'autre.",
-          "Prépare d'avance un commentaire court de 20 secondes pour la prochaine réunion.",
-          "Relis une note ancienne de ton carnet et médite 5 minutes sur son verset clé.",
-          "Apprends ou révise par cœur un verset d'espérance pour le ministère."
-        ];
-        const dayIdx = Math.floor(Date.now() / 86400000) % challenges.length;
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const prefs = loadBrotherPrefs();
-        const done = prefs.challengeDoneDate === todayStr;
-        return `
-          <h4>🌟 Défi spirituel du jour</h4>
-          <div class="sb-mini-card">
-            <p style="font-size:1.02rem;font-weight:600;margin-bottom:0.65rem;">${esc(challenges[dayIdx])}</p>
-            <button type="button" class="${done ? "btn-secondary" : "btn-primary"} btn-xs" id="sb-challenge-toggle">
-              ${done ? "✅ Relevé aujourd'hui !" : "☐ Marquer comme accompli"}
-            </button>
-          </div>
-        `;
-      }
-
-      case "family-worship": {
-        const plans = [
-          { title: "Soirée Portrait Biblique", steps: "Choisir un personnage (ex: Ruth ou Néhémie), lire 1 chapitre ensemble, jouer une scène courte, tirer 2 leçons familiales.", refs: ["Ruth 1:16", "Néhémie 2:4"] },
-          { title: "Chasse aux trésors dans la Bible", steps: "Chaque membre trouve en 3 min un verset sur la joie, la création ou la prière et explique pourquoi il lui plaît.", refs: ["Psaume 104:24", "Proverbes 17:22"] },
-          { title: "Atelier Cantique & Espérance", steps: "Écouter un cantique dans Bibliothèque Audio, lire les versets cités dans la marge puis prier ensemble.", refs: ["Éphésiens 5:19"] },
-          { title: "Simulation Objections du Ministère", steps: "S'entraîner avec bienveillance à répondre en 30s à 3 questions fréquentes des voisins.", refs: ["1 Pierre 3:15"] }
-        ];
-        return `
-          <h4>👨‍👩‍👧‍👦 Planificateur de culte familial</h4>
-          <div class="sb-topics-grid">
-            ${plans.map((p) => `
-              <div class="sb-mini-card">
-                <strong>${esc(p.title)}</strong>
-                <p style="font-size:0.85rem;margin:0.35rem 0;">${esc(p.steps)}</p>
-                <div class="btn-group">${renderScriptureChips(p.refs)}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-      }
-
-      case "comment-30s": {
-        const paraTxt = curArt?.paragraphs?.[2]?.text || curArt?.paragraphs?.[1]?.text || "";
-        return `
-          <h4>💬 Générateur de commentaire de 30s (local)</h4>
-          <p class="card-helper-text">${curArt ? `Article ouvert : <strong>${esc(curArt.title)}</strong>` : "Colle ci-dessous le paragraphe à commenter :"}</p>
-          <textarea id="sb-comment-src" rows="3" class="input-compact" placeholder="Colle ici le paragraphe d'étude…">${esc(paraTxt)}</textarea>
-          <div class="btn-group" style="margin:0.5rem 0;">
-            <button type="button" class="btn-primary btn-xs" id="sb-gen-comment-btn">✨ Construire le commentaire (~30s)</button>
-          </div>
-          <div id="sb-comment-out" class="sb-mini-card hidden"></div>
-        `;
-      }
-
-      case "pearl-extractor": {
-        const textPool = curBible?.primaryData
-          ? curBible.primaryData.verses.map((v) => `v.${v.verse}: ${v.text}`)
-          : (curArt?.paragraphs || []).map((p) => p.text);
-        const needles = [/jéhovah/i, /jésus|christ/i, /promet|promesse/i, /exemple|leçon|montre/i, /fidèl|amour|courage/i];
-        const pearls = textPool.filter((line) => line.length > 35 && needles.some((rx) => rx.test(line))).slice(0, 5);
-        return `
-          <h4>💠 Extracteur de perles spirituelles (local)</h4>
-          <p class="card-helper-text">${curBible?.primaryData ? "Chapitre biblique actif" : curArt ? `Article : ${esc(curArt.title)}` : "Ouvre d'abord un chapitre ou un article de réunion."}</p>
-          ${pearls.length ? pearls.map((p, idx) => `
-            <div class="sb-mini-card" style="margin-bottom:0.5rem;">
-              <span class="badge badge-blue">Perle #${idx + 1}</span>
-              <p style="font-size:0.86rem;margin:0.3rem 0;">${esc(p.slice(0, 260))}${p.length > 260 ? "…" : ""}</p>
-            </div>
-          `).join("") : "<p class='card-helper-text'>Ouvre un chapitre dans Bible ou un Cahier Vie et ministère pour extraire automatiquement des perles.</p>"}
-        `;
-      }
-
-      case "article-summary": {
-        if (!curArt) {
-          return `<h4>⏱️ Résumeur & temps de lecture</h4><p class="card-helper-text">Ouvre d'abord un article dans Réunions ou Bibliothèque pour obtenir son résumé local instantané.</p>`;
-        }
-        const words = (curArt.plainText || "").split(/\s+/).filter(Boolean).length;
-        const mins = Math.max(1, Math.round(words / 180));
-        const keySents = (curArt.paragraphs || []).map((p) => p.text).filter((t) => t.length > 45).slice(0, 4);
-        return `
-          <h4>⏱️ Résumé express : ${esc(curArt.title)}</h4>
-          <div class="btn-group" style="margin-bottom:0.65rem;">
-            <span class="badge badge-blue">~${words} mots</span>
-            <span class="badge badge-blue">Lecture : ~${mins} min</span>
-          </div>
-          ${keySents.map((s) => `<div class="sb-mini-card" style="margin-bottom:0.45rem;"><p style="font-size:0.85rem;">${esc(s.slice(0, 220))}…</p></div>`).join("")}
-        `;
-      }
-
-      case "talk-outliner":
-        return `
-          <h4>🎙️ Constructeur de plan d'exposé</h4>
-          <div class="sb-form-grid">
-            <label>Thème de l'exposé <input type="text" id="sb-talk-title" class="input-compact" placeholder="Ex: Garder sa joie dans les épreuves" /></label>
-            <label>Durée cible
-              <select id="sb-talk-dur" class="input-compact">
-                <option value="5">5 min (Élève / Lecture + Leçon)</option>
-                <option value="10" selected>10 min (Joyaux / Besoins locaux)</option>
-                <option value="15">15 min (Discours thématique)</option>
-              </select>
-            </label>
-            <label>Verset thème <input type="text" id="sb-talk-verse" class="input-compact" placeholder="Ex: Jacques 1:2-4" /></label>
-          </div>
-          <button type="button" class="btn-primary btn-xs" id="sb-talk-gen-btn" style="margin:0.55rem 0;">Générer le canevas minuté</button>
-          <div id="sb-talk-out" class="sb-mini-card hidden"></div>
-        `;
-
-      case "speech-timer":
-        return `
-          <h4>⏲️ Chronomètre & débit d'exposé (~130 mots/min)</h4>
-          <textarea id="sb-speech-text" rows="4" class="input-compact" placeholder="Colle ici tes notes ou ton introduction rédigée pour estimer ta durée réelle…"></textarea>
-          <p id="sb-speech-estimate" class="card-helper-text" style="margin:0.4rem 0;">0 mots · 0 min 00 s estimées (à 130 mots/min)</p>
-          <div class="sb-timer-box">
-            <strong id="sb-stopwatch-display" style="font-size:1.5rem;font-variant-numeric:tabular-nums;">00:00</strong>
-            <div class="btn-group">
-              <button type="button" class="btn-primary btn-xs" id="sb-sw-toggle">${rehearsalTimer.running ? "⏸ Pause" : "▶ Démarrer"}</button>
-              <button type="button" class="btn-secondary btn-xs" id="sb-sw-reset">↺ Remise à zéro</button>
-            </div>
-          </div>
-        `;
-
-      case "meeting-prep-checklist": {
-        const items = [
-          { id: "mprep-joyaux", label: "Lire la portion biblique & noter 1 perle" },
-          { id: "mprep-cahier", label: "Surligner et préparer 2 commentaires Cahier" },
-          { id: "mprep-min", label: "Réviser les présentations Vie & Ministère" },
-          { id: "mprep-tg", label: "Lire les paragraphes et versets clés de La Tour de Garde" },
-          { id: "mprep-cant", label: "Écouter les cantiques de la semaine (Voix / Audio)" },
-          { id: "mprep-com", label: "Rédiger en 1 phrase un commentaire personnel" }
-        ];
-        const prefs = loadBrotherPrefs();
-        const checked = prefs.meetingChecklist || {};
-        return `
-          <h4>✅ Check-list préparation de réunion</h4>
-          <div class="sb-topics-grid">
-            ${items.map((it) => `
-              <label class="sb-mini-card" style="display:flex;align-items:center;gap:0.6rem;cursor:pointer;">
-                <input type="checkbox" class="sb-mprep-cb" data-mprep-id="${it.id}" ${checked[it.id] ? "checked" : ""} />
-                <span>${esc(it.label)}</span>
-              </label>
-            `).join("")}
-          </div>
-        `;
-      }
-
-      case "ministry-starters": {
-        const starters = [
-          { ctx: "Porte-à-porte", txt: "« Bonjour ! Beaucoup de voisins se demandent si l'avenir offrira enfin une vraie stabilité. Pensez-vous que ce changement viendra des gouvernements ou d'ailleurs ? »", verse: "Daniel 2:44" },
-          { ctx: "Témoignage informel (banc, café)", txt: "« Avez-vous vu les actualités ce matin ? Face à tout cela, je suis tombé sur une pensée courte mais vraiment apaisante… »", verse: "Psaume 46:9" },
-          { ctx: "Appel téléphonique", txt: "« Bonjour, je vous appelle juste une minute pour partager une phrase encourageante que beaucoup apprécient en ce moment… »", verse: "Isaïe 41:10" },
-          { ctx: "Jeune ou étudiant", txt: "« Avec toute la pression des études et des réseaux, quel est selon toi le meilleur conseil pour garder un bon moral ? »", verse: "Proverbes 3:5, 6" }
-        ];
-        return `
-          <h4>🚪 Brise-glace pour le ministère</h4>
-          <div class="sb-topics-grid">
-            ${starters.map((s) => `
-              <div class="sb-mini-card">
-                <span class="badge badge-blue">${esc(s.ctx)}</span>
-                <p style="font-size:0.86rem;margin:0.35rem 0;">${esc(s.txt)}</p>
-                <div class="btn-group">${renderScriptureChips([s.verse])}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-      }
-
-      case "objection-responder":
-        return `
-          <h4>🤝 Réponses pleines de tact (${OBJECTIONS.length} situations)</h4>
-          <div class="sb-topics-grid">
-            ${OBJECTIONS.map((o) => `
-              <div class="sb-mini-card">
-                <strong>${esc(o.obj)}</strong>
-                <p style="font-size:0.84rem;margin:0.3rem 0 0.45rem;">${esc(o.reply)}</p>
-                <div class="btn-group">${renderScriptureChips([o.verse])}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "illustrations-bank":
-        return `
-          <h4>💡 Banque d'illustrations & analogies (${ILLUSTRATIONS.length})</h4>
-          <div class="sb-topics-grid">
-            ${ILLUSTRATIONS.map((il) => `
-              <div class="sb-mini-card">
-                <span class="badge badge-blue">${esc(il.topic)}</span>
-                <strong style="display:block;margin-top:0.25rem;">${esc(il.title)}</strong>
-                <p style="font-size:0.84rem;margin:0.3rem 0 0.45rem;">${esc(il.text)}</p>
-                <div class="btn-group">${renderScriptureChips([il.verse])}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "return-visit-3step":
-        return `
-          <h4>🔁 Préparateur de nouvelle visite en 3 étapes</h4>
-          <div class="sb-form-grid">
-            <label>Nom / repère de la personne <input type="text" id="sb-rv-who" class="input-compact" placeholder="Ex: M. Martin (2e étage)" /></label>
-            <label>Sujet laissé la fois dernière <input type="text" id="sb-rv-last" class="input-compact" placeholder="Ex: L'avenir de la terre" /></label>
-            <label>Verset clé pour cette visite <input type="text" id="sb-rv-verse" class="input-compact" placeholder="Ex: Psaume 37:29" /></label>
-            <label>Question passerelle pour la visite suivante <input type="text" id="sb-rv-nextq" class="input-compact" placeholder="Ex: Comment savoir quand ce changement aura lieu ?" /></label>
-          </div>
-          <button type="button" class="btn-primary btn-xs" id="sb-rv-save" style="margin-top:0.55rem;">📝 Sauvegarder en Note « Ministère »</button>
-        `;
-
-      case "bible-quiz": {
-        const q = QUIZ_BANK[quizState.idx % QUIZ_BANK.length];
-        return `
-          <h4>🏆 Quiz biblique interactif (${(quizState.idx % QUIZ_BANK.length) + 1}/${QUIZ_BANK.length}) · Score : ${quizState.score}</h4>
-          <div class="sb-mini-card">
-            <p style="font-weight:600;margin-bottom:0.65rem;">${esc(q.q)}</p>
-            <div class="sb-quiz-opts">
-              ${q.a.map((opt, idx) => {
-                let cls = "btn-secondary btn-xs sb-quiz-opt";
-                if (quizState.answered) {
-                  if (idx === q.c) cls = "btn-primary btn-xs sb-quiz-opt is-correct";
-                  else if (idx === quizState.selected) cls = "btn-secondary btn-xs sb-quiz-opt is-wrong";
-                }
-                return `<button type="button" class="${cls}" data-sb-quiz-opt="${idx}">${esc(opt)}</button>`;
-              }).join("")}
-            </div>
-            ${quizState.answered ? `
-              <div class="btn-group" style="margin-top:0.7rem;">
-                ${renderScriptureChips([q.ref])}
-                <button type="button" class="btn-primary btn-xs" id="sb-quiz-next">Question suivante →</button>
-              </div>
-            ` : ""}
-          </div>
-        `;
-      }
-
-      case "character-profiles":
-        return `
-          <h4>👤 Profils de personnages bibliques (${CHARACTER_PROFILES.length})</h4>
-          <div class="sb-topics-grid">
-            ${CHARACTER_PROFILES.map((c) => `
-              <div class="sb-mini-card">
-                <strong>${esc(c.name)}</strong> <small style="color:var(--jw-blue-link);">· ${esc(c.trait)}</small>
-                <p style="font-size:0.82rem;color:var(--text-secondary);margin:0.25rem 0;">Épreuve : ${esc(c.trial)}</p>
-                <p style="font-size:0.85rem;margin:0.25rem 0 0.45rem;">${esc(c.lesson)}</p>
-                <div class="btn-group">${renderScriptureChips([c.verse])}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "bible-timeline":
-        return `
-          <h4>⏳ Frise chronologique biblique</h4>
-          <div class="sb-timeline-list">
-            ${TIMELINE_EVENTS.map((ev) => `
-              <div class="sb-mini-card" style="margin-bottom:0.5rem;">
-                <div style="display:flex;justify-content:space-between;gap:0.5rem;">
-                  <strong>${esc(ev.title)}</strong>
-                  <span class="badge badge-blue">${esc(ev.date)}</span>
-                </div>
-                <p style="font-size:0.84rem;margin:0.25rem 0 0.4rem;">${esc(ev.desc)}</p>
-                <div class="btn-group">${renderScriptureChips([ev.verse])}</div>
-              </div>
-            `).join("")}
-          </div>
-        `;
-
-      case "stats-reading-plan": {
-        let totalCh = 0;
-        try {
-          const st = JSON.parse(localStorage.getItem("dfwol_studio_state_v3") || "{}");
-          Object.values(st.readingProgress || {}).forEach((arr) => {
-            if (Array.isArray(arr)) totalCh += arr.length;
-          });
-        } catch (_) {}
-        const remaining = Math.max(0, 1189 - totalCh);
-        const pace = Number(loadBrotherPrefs().pace || 3);
-        const daysLeft = Math.ceil(remaining / Math.max(1, pace));
-        const etaDate = new Date(Date.now() + daysLeft * 86400000).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-        const streak = window.DFWolStudy?.updateAndGetStreak ? window.DFWolStudy.updateAndGetStreak() : 1;
-        return `
-          <h4>📊 Mes statistiques & plan de lecture personnalisé</h4>
-          <div class="btn-group" style="margin-bottom:0.75rem;">
-            <span class="badge badge-blue">${totalCh} / 1 189 chapitres lus</span>
-            <span class="badge badge-blue">Série : ${streak} jour(s)</span>
-            <span class="badge badge-blue">Restant : ${remaining} ch.</span>
-          </div>
-          <label style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.65rem;">
-            Mon rythme :
-            <select id="sb-plan-pace" class="input-compact" style="width:auto;">
-              ${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${pace === n ? "selected" : ""}>${n} chapitre(s)/jour</option>`).join("")}
-            </select>
-          </label>
-          <div class="sb-mini-card">
-            <p>Au rythme de <strong>${pace} chapitre(s) par jour</strong>, tu termineras la lecture intégrale dans environ <strong>${daysLeft} jours</strong> (le <strong>${esc(etaDate)}</strong>).</p>
-          </div>
-        `;
-      }
-
-      default:
-        return `<p class="card-helper-text">Sélectionne une des 32 capacités ci-dessus ou pose ta question à Spiritual Brother.</p>`;
-    }
-  }
-
-  function bindSkillWorkspaceEvents(rootEl) {
-    if (!rootEl) return;
-
-    rootEl.querySelectorAll("[data-sb-open-ref]").forEach((btn) => {
-      btn.addEventListener("click", () => openScriptureRef(btn.getAttribute("data-sb-open-ref")));
-    });
-
-    rootEl.querySelectorAll("[data-sb-search]").forEach((btn) => {
-      btn.addEventListener("click", () => launchWolSearch(btn.getAttribute("data-sb-search")));
-    });
-
-    rootEl.querySelector("#sb-lens-open")?.addEventListener("click", () => {
-      const val = rootEl.querySelector("#sb-lens-input")?.value || "Psaume 83:18";
-      openScriptureRef(val);
-    });
-
-    rootEl.querySelector("#sb-glossary-filter")?.addEventListener("input", (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      rootEl.querySelectorAll(".sb-glossary-item").forEach((el) => {
-        el.classList.toggle("hidden", Boolean(q) && !el.textContent.toLowerCase().includes(q));
-      });
-    });
-
-    rootEl.querySelector("#sb-books-filter")?.addEventListener("input", (e) => {
-      const q = e.target.value.toLowerCase().trim();
-      rootEl.querySelectorAll(".sb-book-card").forEach((el) => {
-        el.classList.toggle("hidden", Boolean(q) && !el.textContent.toLowerCase().includes(q));
-      });
-    });
-
-    rootEl.querySelectorAll("[data-sb-book-intro]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const bNum = Number(btn.getAttribute("data-sb-book-intro"));
-        window.DFWolReader?.openBibleBookIntro?.(bNum, lang());
-      });
-    });
-
-    rootEl.querySelectorAll("[data-sb-speak-mood]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const card = btn.closest(".sb-mini-card");
-        if (card) speakText("Encouragement Spiritual Brother", card.querySelector("p")?.textContent || "");
-      });
-    });
-
-    rootEl.querySelector("#sb-dt-speak-btn")?.addEventListener("click", () => {
-      const txt = rootEl.querySelector(".sb-mini-card")?.textContent || "";
-      speakText("Synthèse Texte du jour", txt);
-    });
-
-    // Constructeur WOL
-    const qbInputs = ["#sb-qb-and", "#sb-qb-or", "#sb-qb-exact", "#sb-qb-title", "#sb-qb-not"].map((id) => rootEl.querySelector(id)).filter(Boolean);
-    const buildQbQuery = () => {
-      const andRaw = rootEl.querySelector("#sb-qb-and")?.value.trim();
-      const orRaw = rootEl.querySelector("#sb-qb-or")?.value.trim();
-      const exRaw = rootEl.querySelector("#sb-qb-exact")?.value.trim();
-      const tiRaw = rootEl.querySelector("#sb-qb-title")?.value.trim();
-      const notRaw = rootEl.querySelector("#sb-qb-not")?.value.trim();
-      const parts = [];
-      if (andRaw) parts.push(andRaw.split(/\s+/).join(" & "));
-      if (orRaw) parts.push(`(${orRaw.split(/\s+/).join(" | ")})`);
-      if (exRaw) parts.push(`"${exRaw.replace(/"/g, "")}"`);
-      if (tiRaw) parts.push(`#"${tiRaw.replace(/"/g, "")}"`);
-      if (notRaw) parts.push(`!${notRaw.split(/\s+/)[0]}`);
-      return parts.join(" & ");
-    };
-    qbInputs.forEach((inp) => {
-      inp.addEventListener("input", () => {
-        const out = rootEl.querySelector("#sb-qb-output");
-        if (out) out.textContent = buildQbQuery() || "Prévisualisation de la requête WOL…";
-      });
-    });
-    rootEl.querySelector("#sb-qb-run")?.addEventListener("click", () => launchWolSearch(buildQbQuery()));
-    rootEl.querySelector("#sb-qb-copy")?.addEventListener("click", () => {
-      const q = buildQbQuery();
-      q && window.DFWolStudy?.safeCopyText?.(q, "Requête booléenne copiée !");
-    });
-
-    // Synthèse carnet
-    rootEl.querySelector("#sb-copy-notes-synth")?.addEventListener("click", () => {
-      const notes = window.DFWolGetNotes ? window.DFWolGetNotes() : [];
-      const txt = notes.map((n, i) => `${i + 1}. [${n.tag}] ${n.title}\n${n.body}`).join("\n\n");
-      window.DFWolStudy?.safeCopyText?.(txt || "Aucune note.", "Synthèse copiée !");
-    });
-
-    // Méditation 4 étapes -> Carnet de Notes
-    rootEl.querySelector("#sb-med-save-note")?.addEventListener("click", () => {
-      const ref = rootEl.querySelector("#sb-med-ref")?.value.trim() || "Méditation personnelle";
-      const s1 = rootEl.querySelector("#sb-med-1")?.value.trim();
-      const s2 = rootEl.querySelector("#sb-med-2")?.value.trim();
-      const s3 = rootEl.querySelector("#sb-med-3")?.value.trim();
-      const s4 = rootEl.querySelector("#sb-med-4")?.value.trim();
-      const body = [
-        s1 ? `1. Sur Jéhovah : ${s1}` : "",
-        s2 ? `2. Sur Jésus/Royaume : ${s2}` : "",
-        s3 ? `3. Pour ma foi : ${s3}` : "",
-        s4 ? `4. Application : ${s4}` : ""
-      ].filter(Boolean).join("\n");
-      if (!body) return window.DFWolToast && window.DFWolToast("Remplis au moins une étape.");
-      window.DFWolAddNote && window.DFWolAddNote(`Méditation — ${ref}`, "Étude Perso", body);
-    });
-
-    // Flashcards
-    rootEl.querySelector("#sb-fc-hint")?.addEventListener("click", () => {
-      flashcardStep = 1;
-      render("study-view-brother");
-    });
-    rootEl.querySelector("#sb-fc-reveal")?.addEventListener("click", () => {
-      flashcardStep = 2;
-      render("study-view-brother");
-    });
-    rootEl.querySelector("#sb-fc-next")?.addEventListener("click", () => {
-      flashcardIdx++;
-      flashcardStep = 0;
-      render("study-view-brother");
-    });
-
-    // Défi quotidien
-    rootEl.querySelector("#sb-challenge-toggle")?.addEventListener("click", () => {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const prefs = loadBrotherPrefs();
-      saveBrotherPrefs({ challengeDoneDate: prefs.challengeDoneDate === todayStr ? "" : todayStr });
-      render("study-view-brother");
-    });
-
-    // Commentaire 30s local
-    rootEl.querySelector("#sb-gen-comment-btn")?.addEventListener("click", () => {
-      const src = rootEl.querySelector("#sb-comment-src")?.value.trim() || "";
-      const out = rootEl.querySelector("#sb-comment-out");
-      if (!out || !src) return;
-      const sentences = src.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 20);
-      const first = sentences[0] || src.slice(0, 140);
-      const mid = sentences[Math.min(1, sentences.length - 1)] || "";
-      const refs = window.DFWolBible?.parseScriptureReferences?.(src, lang()) || [];
-      const refHint = refs[0] ? `Comme le souligne ${refs[0].label}, ` : "";
-      const generated = `${first.replace(/[.!?]+$/, "")}. ${refHint}${mid ? mid.replace(/^([A-Z])/, (m) => m.toLowerCase()) : "Cela nous motive à appliquer cette pensée concrètement dès cette semaine."}`;
-      const words = generated.split(/\s+/).filter(Boolean).length;
-      out.classList.remove("hidden");
-      out.innerHTML = `
-        <strong>Suggestion naturelle (~${words} mots · ~${Math.max(12, Math.round((words / 130) * 60))}s) :</strong>
-        <p style="margin:0.4rem 0;">« ${esc(generated)} »</p>
-        <button type="button" class="btn-secondary btn-xs" id="sb-copy-comment-gen">📋 Copier</button>
-      `;
-      out.querySelector("#sb-copy-comment-gen")?.addEventListener("click", () => {
-        window.DFWolStudy?.safeCopyText?.(generated, "Commentaire copié !");
-      });
-    });
-
-    // Plan d'exposé
-    rootEl.querySelector("#sb-talk-gen-btn")?.addEventListener("click", () => {
-      const title = rootEl.querySelector("#sb-talk-title")?.value.trim() || "Thème biblique";
-      const dur = Number(rootEl.querySelector("#sb-talk-dur")?.value || 10);
-      const verse = rootEl.querySelector("#sb-talk-verse")?.value.trim() || "Proverbes 3:5, 6";
-      const out = rootEl.querySelector("#sb-talk-out");
-      if (!out) return;
-      const introMin = Math.max(1, Math.round(dur * 0.15));
-      const bodyMin = Math.max(3, Math.round(dur * 0.7));
-      const conclMin = Math.max(1, dur - introMin - bodyMin);
-      const planText = `EXPOSÉ (${dur} min) : ${title}\nVerset thème : ${verse}\n1. Introduction (${introMin} min) : Question accroche + annonce du thème.\n2. Développement (${bodyMin} min) :\n   • Point A : Lire et expliquer ${verse}\n   • Point B : Illustration concrète tirée de la vie courante\n   • Point C : Application pratique aujourd'hui\n3. Conclusion (${conclMin} min) : Résumé clair + appel encourageant à l'action.`;
-      out.classList.remove("hidden");
-      out.innerHTML = `<pre style="white-space:pre-wrap;font-family:inherit;margin:0 0 0.5rem;">${esc(planText)}</pre><button type="button" class="btn-primary btn-xs" id="sb-save-talk-note">📝 Enregistrer comme Note</button>`;
-      out.querySelector("#sb-save-talk-note")?.addEventListener("click", () => {
-        window.DFWolAddNote && window.DFWolAddNote(`Plan : ${title}`, "Exposé", planText);
-      });
-    });
-
-    // Chronomètre discours
-    const speechTa = rootEl.querySelector("#sb-speech-text");
-    const estEl = rootEl.querySelector("#sb-speech-estimate");
-    if (speechTa && estEl) {
-      const updateEst = () => {
-        const wc = speechTa.value.trim().split(/\s+/).filter(Boolean).length;
-        const sec = Math.round((wc / 130) * 60);
-        estEl.textContent = `${wc} mots · ${Math.floor(sec / 60)} min ${String(sec % 60).padStart(2, "0")} s estimées (à 130 mots/min)`;
-      };
-      speechTa.addEventListener("input", updateEst);
-    }
-    const formatSw = (ms) => {
-      const s = Math.floor(ms / 1000);
-      return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-    };
-    rootEl.querySelector("#sb-sw-toggle")?.addEventListener("click", (e) => {
-      const disp = rootEl.querySelector("#sb-stopwatch-display");
-      if (rehearsalTimer.running) {
-        clearInterval(rehearsalTimer.intervalId);
-        rehearsalTimer.elapsedMs += Date.now() - rehearsalTimer.startedAt;
-        rehearsalTimer.running = false;
-        e.currentTarget.textContent = "▶ Reprendre";
-      } else {
-        rehearsalTimer.startedAt = Date.now();
-        rehearsalTimer.running = true;
-        e.currentTarget.textContent = "⏸ Pause";
-        rehearsalTimer.intervalId = setInterval(() => {
-          const el = document.getElementById("sb-stopwatch-display");
-          if (el) el.textContent = formatSw(rehearsalTimer.elapsedMs + (Date.now() - rehearsalTimer.startedAt));
-        }, 250);
-      }
-      if (disp) disp.textContent = formatSw(rehearsalTimer.elapsedMs);
-    });
-    rootEl.querySelector("#sb-sw-reset")?.addEventListener("click", () => {
-      clearInterval(rehearsalTimer.intervalId);
-      rehearsalTimer = { running: false, startedAt: 0, elapsedMs: 0, intervalId: null };
-      const disp = rootEl.querySelector("#sb-stopwatch-display");
-      if (disp) disp.textContent = "00:00";
-      const btn = rootEl.querySelector("#sb-sw-toggle");
-      if (btn) btn.textContent = "▶ Démarrer";
-    });
-
-    // Check-list réunion
-    rootEl.querySelectorAll(".sb-mprep-cb").forEach((cb) => {
-      cb.addEventListener("change", () => {
-        const prefs = loadBrotherPrefs();
-        const cur = prefs.meetingChecklist || {};
-        cur[cb.getAttribute("data-mprep-id")] = cb.checked;
-        saveBrotherPrefs({ meetingChecklist: cur });
-      });
-    });
-
-    // Nouvelle visite
-    rootEl.querySelector("#sb-rv-save")?.addEventListener("click", () => {
-      const who = rootEl.querySelector("#sb-rv-who")?.value.trim() || "Nouvelle visite";
-      const last = rootEl.querySelector("#sb-rv-last")?.value.trim() || "-";
-      const v = rootEl.querySelector("#sb-rv-verse")?.value.trim() || "-";
-      const nextQ = rootEl.querySelector("#sb-rv-nextq")?.value.trim() || "-";
-      const body = `1. Rappel précédent : ${last}\n2. Verset préparé : ${v}\n3. Question pour la suite : ${nextQ}`;
-      window.DFWolAddNote && window.DFWolAddNote(`Visite — ${who}`, "Ministère", body);
-    });
-
-    // Quiz biblique
-    rootEl.querySelectorAll("[data-sb-quiz-opt]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (quizState.answered) return;
-        const chosen = Number(btn.getAttribute("data-sb-quiz-opt"));
-        const q = QUIZ_BANK[quizState.idx % QUIZ_BANK.length];
-        quizState.answered = true;
-        quizState.selected = chosen;
-        if (chosen === q.c) quizState.score++;
-        render("study-view-brother");
-      });
-    });
-    rootEl.querySelector("#sb-quiz-next")?.addEventListener("click", () => {
-      quizState.idx++;
-      quizState.answered = false;
-      quizState.selected = -1;
-      render("study-view-brother");
-    });
-
-    // Rythme plan de lecture
-    rootEl.querySelector("#sb-plan-pace")?.addEventListener("change", (e) => {
-      saveBrotherPrefs({ pace: Number(e.target.value) });
-      render("study-view-brother");
+  function ensureInitialMessage() {
+    if (chatHistory.length > 0) return;
+    chatHistory.push({
+      role: "brother",
+      text: "Salut ! Je suis **Spiritual Brother**, ton compagnon spirituel **100 % local** (zéro clé API). Pose-moi n'importe quelle question : **je cite les versets, cherche les vrais articles WOL/JW.org en direct, résume ton article ouvert, prépare des commentaires ou des exposés, et t'encourage selon ta situation.**",
+      verses: ["Psaume 83:18", "Proverbes 3:5, 6", "Philippiens 4:6, 7"],
+      followups: [
+        "Je suis inquiet, quels versets lire ?",
+        "Articles sur le pardon",
+        "Résume l'article ouvert",
+        "Quiz biblique"
+      ]
     });
   }
 
-  // ==========================================================================
-  // Vue Principale Spiritual Brother (#study-view-brother)
-  // ==========================================================================
+  function renderQuizInsideMsg(msg, msgIdx) {
+    const q = QUIZ_BANK[msg.quizIdx % QUIZ_BANK.length];
+    if (!q) return "";
+    return `
+      <div class="sb-quiz-card">
+        <strong>🏆 Quiz biblique</strong>
+        <p style="margin:0.25rem 0 0.5rem;">${esc(q.q)}</p>
+        <div class="sb-quiz-opts">
+          ${q.a
+            .map((opt, oIdx) => {
+              let cls = "btn-secondary btn-xs sb-quiz-opt";
+              if (msg.quizAnswered) {
+                if (oIdx === q.c) cls = "btn-primary btn-xs sb-quiz-opt is-correct";
+                else if (oIdx === msg.quizSelected) cls = "btn-secondary btn-xs sb-quiz-opt is-wrong";
+              }
+              return `<button type="button" class="${cls}" data-sb-quiz-msg="${msgIdx}" data-sb-quiz-opt="${oIdx}">${esc(opt)}</button>`;
+            })
+            .join("")}
+        </div>
+        ${msg.quizAnswered ? `<div style="margin-top:0.45rem;"><button type="button" class="pill-btn pill-xs sb-verse-chip" data-sb-open-ref="${esc(q.ref)}">📖 Vérifier : ${esc(q.ref)}</button></div>` : ""}
+      </div>
+    `;
+  }
 
   function render(containerId = "study-view-brother") {
     const root = document.getElementById(containerId);
     if (!root) return;
+    ensureInitialMessage();
 
-    const cats = [
-      { id: "all", label: `Tout (${SKILLS.length})` },
-      { id: "recherche", label: "Recherche (6)" },
-      { id: "bible", label: "Bible (6)" },
-      { id: "meditation", label: "Méditation (6)" },
-      { id: "reunions", label: "Réunions (6)" },
-      { id: "ministere", label: "Ministère (4)" },
-      { id: "parcours", label: "Parcours (4)" }
-    ];
-    const visibleSkills = activeCategory === "all" ? SKILLS : SKILLS.filter((s) => s.cat === activeCategory);
+    const ctx = getLiveContextSummary();
+    const ctxBadge = ctx.curArt
+      ? `📄 Article : ${ctx.curArt.title.slice(0, 32)}`
+      : ctx.bibleLabel
+      ? `📖 Bible : ${ctx.bibleLabel}`
+      : ctx.dtRef
+      ? `☀️ Texte du jour : ${ctx.dtRef}`
+      : "🧭 Prêt";
 
-    if (chatHistory.length === 0) {
-      chatHistory.push({
-        role: "brother",
-        text: "Salut ! Je suis **Spiritual Brother**, ton compagnon spirituel **100 % local** (zéro clé API requise). Dis-moi ce que tu traverses, le sujet que tu recherches, ou explore mes **32 outils** ci-dessous.",
-        verses: ["Psaume 83:18", "Proverbes 3:5, 6", "Philippiens 4:6, 7"],
-        queries: ["paix d'esprit Bible", "trouver des perles spirituelles"]
-      });
-    }
+    const quickSuggestions = ctx.curArt
+      ? ["Résume l'article ouvert", "Commentaire de 30s", "Extraire les perles", "Quiz biblique"]
+      : ["Je suis découragé, aide-moi", "Articles sur l'espérance", "Objection : Pourquoi la souffrance ?", "Mes stats de lecture"];
 
     root.innerHTML = `
-      <div class="sb-shell card">
-        <div class="sb-header">
-          <div class="sb-avatar" aria-hidden="true">🧭</div>
-          <div>
-            <h3>Spiritual Brother <span class="badge badge-blue">IA 100 % Locale · 32 Capacités</span></h3>
-            <p class="card-helper-text">Suggestions d'articles, versets, méditation, ministère & étude — instantané, privé et sans aucune clé API.</p>
+      <div class="sb-chat-shell card">
+        <div class="sb-chat-topbar">
+          <div class="sb-header-id">
+            <div class="sb-avatar" aria-hidden="true">🧭</div>
+            <div>
+              <h3>Spiritual Brother <span class="badge badge-blue">Tchat Local · 0 Clé API</span></h3>
+              <span class="sb-ctx-pill">${esc(ctxBadge)}</span>
+            </div>
           </div>
+          <button type="button" id="sb-clear-chat" class="btn-ghost btn-xs" title="Démarrer une nouvelle conversation">🗑️ Nouveau</button>
         </div>
 
         <div class="sb-chat-thread" id="sb-chat-thread">
-          ${chatHistory.map((msg) => `
-            <div class="sb-chat-msg ${msg.role === "user" ? "is-user" : "is-brother"}">
-              <div class="sb-chat-bubble">
-                <p style="white-space:pre-wrap;margin:0;">${esc(msg.text).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</p>
-                ${msg.verses?.length ? `<div class="btn-group" style="margin-top:0.45rem;">${renderScriptureChips(msg.verses)}</div>` : ""}
-                ${msg.queries?.length ? `<div class="btn-group" style="margin-top:0.35rem;">${msg.queries.map((q) => `<button type="button" class="btn-secondary btn-xs" data-sb-search="${esc(q)}">🔍 ${esc(q)}</button>`).join("")}</div>` : ""}
-                ${msg.recommendedSkill ? `<div style="margin-top:0.35rem;"><button type="button" class="btn-ghost btn-xs" data-sb-select-skill="${esc(msg.recommendedSkill)}">🛠️ Ouvrir l'outil associé</button></div>` : ""}
-              </div>
-            </div>
-          `).join("")}
+          ${chatHistory
+            .map((msg, idx) => {
+              const isUser = msg.role === "user";
+              return `
+                <div class="sb-chat-msg ${isUser ? "is-user" : "is-brother"}">
+                  <div class="sb-chat-bubble">
+                    <p class="sb-msg-text" style="white-space:pre-wrap;margin:0;">${formatMarkdownReply(msg.text)}</p>
+                    ${
+                      msg.verseQuotes?.length
+                        ? `<div class="sb-quotes-stack">${msg.verseQuotes
+                            .map(
+                              (vq) =>
+                                `<blockquote class="sb-verse-quote-card"><strong>${esc(vq.ref)}</strong><p>${esc(vq.text)}</p></blockquote>`
+                            )
+                            .join("")}</div>`
+                        : ""
+                    }
+                    ${typeof msg.quizIdx === "number" ? renderQuizInsideMsg(msg, idx) : ""}
+                    ${
+                      msg.articles?.length
+                        ? `<div class="sb-article-cards">${msg.articles
+                            .map(
+                              (art, aIdx) => `
+                              <div class="sb-article-row">
+                                <div>
+                                  <strong>${esc(art.title)}</strong>
+                                  <small>${esc(art.sub)}</small>
+                                </div>
+                                <div class="btn-group">
+                                  <button type="button" class="btn-primary btn-xs" data-sb-read-art="${idx}:${aIdx}">📖 Lire</button>
+                                  <button type="button" class="btn-secondary btn-xs" data-sb-listen-art="${idx}:${aIdx}" title="Écouter">🎧</button>
+                                </div>
+                              </div>`
+                            )
+                            .join("")}</div>`
+                        : ""
+                    }
+                    ${
+                      msg.verses?.length || msg.bookIntroNum
+                        ? `<div class="btn-group" style="margin-top:0.5rem;">
+                            ${(msg.verses || []).map((ref) => `<button type="button" class="pill-btn pill-xs sb-verse-chip" data-sb-open-ref="${esc(ref)}">📖 ${esc(ref)}</button>`).join("")}
+                            ${msg.bookIntroNum ? `<button type="button" class="btn-secondary btn-xs" data-sb-book-intro="${msg.bookIntroNum}">📘 Aperçu du livre</button>` : ""}
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      msg.queries?.length
+                        ? `<div class="btn-group" style="margin-top:0.4rem;">
+                            ${msg.queries.map((q) => `<button type="button" class="btn-secondary btn-xs" data-sb-search="${esc(q)}">🔍 ${esc(q.slice(0, 34))}</button>`).join("")}
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      !isUser && idx > 0
+                        ? `<div class="sb-bubble-actions">
+                            <button type="button" class="btn-ghost btn-xs" data-sb-speak="${idx}" title="Écouter avec Vivienne">🗣️ Écouter</button>
+                            <button type="button" class="btn-ghost btn-xs" data-sb-note="${idx}" title="Enregistrer en note">📝 Noter</button>
+                            <button type="button" class="btn-ghost btn-xs" data-sb-copy="${idx}" title="Copier">📋 Copier</button>
+                          </div>`
+                        : ""
+                    }
+                    ${
+                      !isUser && idx === chatHistory.length - 1 && msg.followups?.length
+                        ? `<div class="sb-followups">${msg.followups
+                            .map((f) => `<button type="button" class="pill-btn pill-xs" data-sb-prompt="${esc(f)}">${esc(f)}</button>`)
+                            .join("")}</div>`
+                        : ""
+                    }
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+          ${
+            isThinking
+              ? `<div class="sb-chat-msg is-brother"><div class="sb-chat-bubble"><span class="sb-typing-dots">🧭 Consultation Bible &amp; WOL en cours…</span></div></div>`
+              : ""
+          }
+        </div>
+
+        <div class="sb-quick-prompts btn-group">
+          ${quickSuggestions.map((s) => `<button type="button" class="pill-btn pill-xs" data-sb-prompt="${esc(s)}">${esc(s)}</button>`).join("")}
         </div>
 
         <form class="sb-chat-form" id="sb-chat-form">
-          <input type="text" id="sb-chat-input" class="input-compact" placeholder="Ex : Je suis découragé, versets sur le pardon, plan d'exposé, Ruth…" autocomplete="off" />
-          <button type="submit" class="btn-primary btn-sm">Demander 🧭</button>
+          <textarea id="sb-chat-input" class="input-compact" rows="2" placeholder="Pose ta question (ex : versets contre l'anxiété, Psaume 83:18, résume l'article, articles sur le pardon…)"></textarea>
+          <button type="submit" id="sb-chat-send" class="btn-primary btn-sm" ${isThinking ? "disabled" : ""}>Envoyer 🧭</button>
         </form>
-
-        <div class="sb-quick-prompts btn-group" style="margin-top:0.5rem;">
-          <button type="button" class="pill-btn pill-xs" data-sb-prompt="Je suis inquiet, quels versets lire ?">😟 Inquiet</button>
-          <button type="button" class="pill-btn pill-xs" data-sb-prompt="Trouve-moi des articles sur le pardon">🕊️ Pardon</button>
-          <button type="button" class="pill-btn pill-xs" data-sb-prompt="Conseils pour le culte en famille">👨‍👩‍👧 Famille</button>
-          <button type="button" class="pill-btn pill-xs" data-sb-prompt="Parle-moi de Daniel">👤 Daniel</button>
-        </div>
-      </div>
-
-      <div class="sb-skills-section card" style="margin-top:1rem;">
-        <div class="card-header-row" style="margin-bottom:0.65rem;">
-          <h3>🛠️ Les 32 Capacités de Spiritual Brother</h3>
-          <div class="btn-group">${cats.map((c) => `<button type="button" class="pill-btn pill-xs ${activeCategory === c.id ? "active" : ""}" data-sb-cat="${c.id}">${esc(c.label)}</button>`).join("")}</div>
-        </div>
-
-        <div class="sb-skills-grid">
-          ${visibleSkills.map((sk) => `
-            <button type="button" class="sb-skill-tile ${activeSkillId === sk.id ? "active" : ""}" data-sb-skill="${esc(sk.id)}">
-              <span class="sb-skill-ico">${sk.icon}</span>
-              <div>
-                <strong>${esc(sk.name)}</strong>
-                <small>${esc(sk.desc)}</small>
-              </div>
-            </button>
-          `).join("")}
-        </div>
-
-        ${activeSkillId && activeSkillId !== "chat" ? `<div class="sb-active-workspace" id="sb-active-workspace">${renderSkillWorkspace(activeSkillId)}</div>` : ""}
       </div>
     `;
 
     const thread = root.querySelector("#sb-chat-thread");
     if (thread) thread.scrollTop = thread.scrollHeight;
 
+    const sendUserText = async (text) => {
+      const clean = cleanStr(text);
+      if (!clean || isThinking) return;
+      chatHistory.push({ role: "user", text: clean });
+      isThinking = true;
+      render(containerId);
+      try {
+        const reply = await processUserMessage(clean);
+        chatHistory.push(Object.assign({ role: "brother" }, reply));
+        if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+      } finally {
+        isThinking = false;
+        savePersistedChat();
+        render(containerId);
+      }
+    };
+
     root.querySelector("#sb-chat-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
       const inp = root.querySelector("#sb-chat-input");
-      const text = inp?.value.trim();
-      if (!text) return;
-      chatHistory.push({ role: "user", text });
-      const ans = analyzeUserQueryLocally(text);
-      chatHistory.push({ role: "brother", text: ans.reply, verses: ans.verses, queries: ans.queries, recommendedSkill: ans.recommendedSkill });
-      if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+      if (!inp) return;
+      const val = inp.value;
+      inp.value = "";
+      sendUserText(val);
+    });
+
+    root.querySelector("#sb-chat-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        root.querySelector("#sb-chat-form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+      }
+    });
+
+    root.querySelector("#sb-clear-chat")?.addEventListener("click", () => {
+      chatHistory = [];
+      convContext = { lastTopicId: null, lastRefs: [], lastQuery: "", lastBookNum: null, lastCharName: null };
+      savePersistedChat();
       render(containerId);
     });
 
     root.querySelectorAll("[data-sb-prompt]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const text = btn.getAttribute("data-sb-prompt");
-        chatHistory.push({ role: "user", text });
-        const ans = analyzeUserQueryLocally(text);
-        chatHistory.push({ role: "brother", text: ans.reply, verses: ans.verses, queries: ans.queries, recommendedSkill: ans.recommendedSkill });
-        render(containerId);
-      });
-    });
-
-    root.querySelectorAll("[data-sb-cat]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        activeCategory = btn.getAttribute("data-sb-cat");
-        render(containerId);
-      });
-    });
-
-    root.querySelectorAll("[data-sb-skill]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        activeSkillId = btn.getAttribute("data-sb-skill");
-        render(containerId);
-        document.getElementById("sb-active-workspace")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
-    });
-
-    root.querySelectorAll("[data-sb-select-skill]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        activeSkillId = btn.getAttribute("data-sb-select-skill");
-        render(containerId);
-        document.getElementById("sb-active-workspace")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
+      btn.addEventListener("click", () => sendUserText(btn.getAttribute("data-sb-prompt")));
     });
 
     root.querySelectorAll("[data-sb-open-ref]").forEach((btn) => {
       btn.addEventListener("click", () => openScriptureRef(btn.getAttribute("data-sb-open-ref")));
     });
 
+    root.querySelectorAll("[data-sb-book-intro]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        window.DFWolReader?.openBibleBookIntro?.(Number(btn.getAttribute("data-sb-book-intro")), lang());
+      });
+    });
+
     root.querySelectorAll("[data-sb-search]").forEach((btn) => {
       btn.addEventListener("click", () => launchWolSearch(btn.getAttribute("data-sb-search")));
     });
 
-    bindSkillWorkspaceEvents(root.querySelector("#sb-active-workspace"));
+    root.querySelectorAll("[data-sb-read-art]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const [mIdx, aIdx] = btn.getAttribute("data-sb-read-art").split(":").map(Number);
+        const art = chatHistory[mIdx]?.articles?.[aIdx];
+        if (art?.url) window.DFWolReader?.openArticleInApp?.(art.url, { lang: lang() });
+      });
+    });
+
+    root.querySelectorAll("[data-sb-listen-art]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const [mIdx, aIdx] = btn.getAttribute("data-sb-listen-art").split(":").map(Number);
+        const art = chatHistory[mIdx]?.articles?.[aIdx];
+        if (art?.url) {
+          window.DFWolAudio?.playTrack?.({ title: art.title, subtitle: art.sub, wolUrl: art.url, lang: lang(), mode: "auto" });
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-sb-speak]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const msg = chatHistory[Number(btn.getAttribute("data-sb-speak"))];
+        if (msg) {
+          const full = [msg.text, ...(msg.verseQuotes || []).map((q) => `${q.ref}. ${q.text}`)].join("\n\n");
+          speakText("Spiritual Brother", full);
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-sb-note]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const msg = chatHistory[Number(btn.getAttribute("data-sb-note"))];
+        if (msg && window.DFWolAddNote) {
+          const body = [msg.text.replace(/\*\*([^*]+)\*\*/g, "$1"), ...(msg.verseQuotes || []).map((q) => `${q.ref} : ${q.text}`)].join("\n\n");
+          window.DFWolAddNote("Spiritual Brother — Réponse", "Étude Perso", body);
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-sb-copy]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const msg = chatHistory[Number(btn.getAttribute("data-sb-copy"))];
+        if (msg) {
+          const body = [msg.text.replace(/\*\*([^*]+)\*\*/g, "$1"), ...(msg.verseQuotes || []).map((q) => `${q.ref} : ${q.text}`)].join("\n\n");
+          window.DFWolStudy?.safeCopyText?.(body, "Réponse copiée !");
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-sb-quiz-msg]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mIdx = Number(btn.getAttribute("data-sb-quiz-msg"));
+        const optIdx = Number(btn.getAttribute("data-sb-quiz-opt"));
+        const msg = chatHistory[mIdx];
+        if (!msg || msg.quizAnswered) return;
+        msg.quizAnswered = true;
+        msg.quizSelected = optIdx;
+        savePersistedChat();
+        render(containerId);
+      });
+    });
   }
 
   function init() {
-    if (uiBound) {
-      return;
-    }
+    if (uiBound) return;
     uiBound = true;
+    loadPersistedChat();
     render("study-view-brother");
   }
 
   return {
     init,
     render,
-    getSkills: () => SKILLS.slice(),
-    analyzeQuery: analyzeUserQueryLocally
+    ask: processUserMessage
   };
 })();

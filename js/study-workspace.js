@@ -792,12 +792,21 @@ window.DFWolStudy = (function () {
 
   function bindContextMenus() {
     document.addEventListener("contextmenu", (e) => {
-      if (e.target.closest("input, textarea")) return;
+      if (e.target.closest("input, textarea, .gen-field")) return;
+      if (e.target.closest("#reader-article-body, #bible-reader-body")) {
+        const isTouchCtx =
+          e.pointerType === "touch" ||
+          (window.matchMedia?.("(pointer: coarse)")?.matches && e.button !== 2);
+        if (isTouchCtx) {
+          e.preventDefault();
+          return;
+        }
+      }
       const handled = handleContextTrigger(e.target, e.clientX, e.clientY);
       if (handled) e.preventDefault();
     });
 
-    // Appui long sur mobile / tablette tactile
+    // Appui long sur mobile / tablette tactile (hors zone de lecture où le surlignage gère l'appui long)
     let pressTimer = null;
     let startX = 0;
     let startY = 0;
@@ -805,7 +814,7 @@ window.DFWolStudy = (function () {
       "pointerdown",
       (e) => {
         if (e.pointerType !== "touch") return;
-        if (e.target.closest("button, a, input, textarea, select")) return;
+        if (e.target.closest("button, a, input, textarea, select, #reader-article-body, #bible-reader-body")) return;
         startX = e.clientX;
         startY = e.clientY;
         const target = e.target;
@@ -2081,6 +2090,7 @@ window.DFWolStudy = (function () {
     clearHistory,
     openHistoryDrawer,
     openContextMenu,
+    openContextMenuForElement: (el, x, y) => (el ? handleContextTrigger(el, x, y) : false),
     closeContextMenu,
     hideHoverPopover,
     openFindBar,

@@ -9,8 +9,15 @@ window.DFWolAudio = (function () {
   const VOICE_PREF_KEY = "dfwol_tts_voice_prefs_v3";
   const TTS_OPTS_KEY = "dfwol_tts_opts_v1";
   const SKIP_REFS_KEY = "dfwol_tts_skip_refs_v1";
-  const htmlAudio = new Audio();
-  htmlAudio.preload = "auto";
+  const audioSlots = [new Audio(), new Audio()];
+  audioSlots[0].preload = "auto";
+  audioSlots[1].preload = "auto";
+  let activeSlotIdx = 0;
+  const getActiveAudio = () => audioSlots[activeSlotIdx];
+  const getStandbyAudio = () => audioSlots[1 - activeSlotIdx];
+  let standbyPreparedIndex = -1;
+  let standbyPreparedSession = -1;
+  let bufferingGraceTimer = null;
 
   const VOICE_CATALOG = {
     fr: [
@@ -45,7 +52,7 @@ window.DFWolAudio = (function () {
   };
   let ttsOpts = {
     pitch: "0%",
-    paragraphPauseMs: 400,
+    paragraphPauseMs: 150,
     autoScroll: true
   };
   let skipRefsInTts = true;
@@ -405,10 +412,10 @@ window.DFWolAudio = (function () {
   }
 
   /**
-   * Découpe progressif "Fast-Start" :
-   * - Chunk 0 <= 150 car. (démarrage quasi-instantané)
-   * - Chunk 1 <= 260 car.
-   * - Chunks 2+ <= 420 car.
+   * Découpe progressif "Fast-Start" + fusion des paragraphes courts :
+   * - Chunk 0 <= 165 car. (démarrage quasi-instantané)
+   * - Chunk 1 <= 280 car.
+   * - Chunks 2+ <= 360 car. (équilibre latence Edge TTS / enchaînement sans coupures)
    */
   function buildTtsChunks(paragraphsOrText, lang = "fr") {
     const chunks = [];
@@ -420,36 +427,68 @@ window.DFWolAudio = (function () {
           .split(/\n+/)
           .map((t, idx) => ({ text: t, pid: null, pIdx: idx }));
 
-    const getLimit = () => (chunks.length === 0 ? 150 : chunks.length === 1 ? 260 : 420);
+    const getLimit = () => (chunks.length === 0 ? 165 : chunks.length === 1 ? 280 : 360);
+
+    let carryText = "";
+    let carryPid = null;
+    let carryPIdx = 0;
+
+    const flushCarry = () => {
+      if (carryText.trim()) {
+        chunks.push({ text: carryText.trim(), pid: carryPid, pIdx: carryPIdx });
+      }
+      carryText = "";
+      carryPid = null;
+    };
 
     rawParas.forEach((p) => {
       const clean = sanitizeTextForTts(p.text || "", lang);
       if (!clean || /^[,.;:!?—–-]+$/.test(clean)) return;
+
+      const isHeadingLike = clean.length < 95 && !/[.!?…]$/.test(clean);
       const rawSentences = clean.match(/[^.!?…]+[.!?…]*\s*/g) || [clean];
       const pieces = [];
       rawSentences.forEach((s) => {
-        if (chunks.length === 0 && pieces.length === 0 && s.trim().length > 185) {
+        if (chunks.length === 0 && !carryText && pieces.length === 0 && s.trim().length > 185) {
           splitClauseForFastStart(s.trim(), 165).forEach((part) => part && pieces.push(part + " "));
         } else {
           pieces.push(s);
         }
       });
 
-      let buffer = "";
+      if (carryText) {
+        const sep = /[.!?…]$/.test(carryText.trim()) ? " " : ". ";
+        const joinedCandidate = `${carryText.trim()}${sep}${clean}`;
+        if (chunks.length > 0 && joinedCandidate.length <= getLimit()) {
+          carryText = joinedCandidate + (isHeadingLike ? "." : "");
+          return;
+        }
+        flushCarry();
+      }
+
+      carryPid = p.pid;
+      carryPIdx = p.pIdx;
+
       pieces.forEach((sent) => {
         const limit = getLimit();
-        if ((buffer + sent).length > limit && buffer.trim()) {
-          chunks.push({ text: buffer.trim(), pid: p.pid, pIdx: p.pIdx });
-          buffer = sent;
+        if ((carryText + sent).length > limit && carryText.trim()) {
+          flushCarry();
+          carryPid = p.pid;
+          carryPIdx = p.pIdx;
+          carryText = sent;
         } else {
-          buffer += sent;
+          carryText += (carryText && !/\s$/.test(carryText) ? " " : "") + sent;
         }
       });
-      if (buffer.trim()) {
-        chunks.push({ text: buffer.trim(), pid: p.pid, pIdx: p.pIdx });
+
+      if (chunks.length === 0) {
+        flushCarry();
+      } else if (carryText.trim() && isHeadingLike && !/[.!?…]$/.test(carryText.trim())) {
+        carryText = carryText.trim() + ".";
       }
     });
 
+    flushCarry();
     return chunks;
   }
 
@@ -556,6 +595,7 @@ window.DFWolAudio = (function () {
             text: cleanText,
             voice: voiceId,
             lang,
+            pitch,
             rate: 1.0
           });
           if (res && res.audioBase64) {
@@ -620,6 +660,45 @@ window.DFWolAudio = (function () {
     const p = synthesizeChunkAudio(chunk.text, lang, voiceId).catch(() => null);
     prefetchedChunks.set(key, p);
     return p;
+  }
+
+  function prefetchWindow(startIndex, lang, voiceId, sessionId, count = 3) {
+    if (!voiceId || voiceId === "system") return;
+    const end = Math.min(state.ttsChunks.length, startIndex + count);
+    for (let k = startIndex; k < end; k++) {
+      const delay = (k - startIndex) * 140;
+      if (delay === 0) {
+        getOrPrefetchChunk(k, lang, voiceId, sessionId);
+      } else {
+        setTimeout(() => {
+          if (!state.ttsStopRequested && sessionId === state.ttsSessionId) {
+            getOrPrefetchChunk(k, lang, voiceId, sessionId);
+          }
+        }, delay);
+      }
+    }
+  }
+
+  function prepareStandbyForIndex(nextIdx, lang, voiceId, mySession) {
+    if (nextIdx >= state.ttsChunks.length || !voiceId || voiceId === "system") return;
+    const p = getOrPrefetchChunk(nextIdx, lang, voiceId, mySession);
+    if (!p) return;
+    Promise.resolve(p)
+      .then((nextRes) => {
+        if (state.ttsStopRequested || mySession !== state.ttsSessionId) return;
+        if (state.ttsChunkIndex !== nextIdx - 1) return;
+        if (!nextRes || !nextRes.url) return;
+        const standby = getStandbyAudio();
+        standby.src = nextRes.url;
+        standby.playbackRate = state.rate;
+        try {
+          standby.load();
+        } catch (_) {}
+        standbyPreparedIndex = nextIdx;
+        standbyPreparedSession = mySession;
+        state.activeBlobUrl = state.activeBlobUrl || nextRes.url;
+      })
+      .catch(() => {});
   }
 
   function bindNativeTtsListeners() {
@@ -716,8 +795,13 @@ window.DFWolAudio = (function () {
   }
 
   function stopTtsInternal() {
+    if (bufferingGraceTimer) {
+      clearTimeout(bufferingGraceTimer);
+      bufferingGraceTimer = null;
+    }
     state.ttsStopRequested = true;
     state.ttsSessionId++;
+    state.isBuffering = false;
     activeNativeUtteranceId = null;
     if (activeNativeUtteranceResolve) {
       const fn = activeNativeUtteranceResolve;
@@ -738,11 +822,15 @@ window.DFWolAudio = (function () {
   }
 
   function stopMp3Internal() {
-    try {
-      htmlAudio.pause();
-      htmlAudio.removeAttribute("src");
-      htmlAudio.load();
-    } catch (_) {}
+    standbyPreparedIndex = -1;
+    standbyPreparedSession = -1;
+    audioSlots.forEach((slot) => {
+      try {
+        slot.pause();
+        slot.removeAttribute("src");
+        slot.load();
+      } catch (_) {}
+    });
     if (state.activeBlobUrl) {
       revokeBlobUrl(state.activeBlobUrl);
       state.activeBlobUrl = null;
@@ -789,7 +877,8 @@ window.DFWolAudio = (function () {
     const cur = state.queue[state.currentIndex];
     const markers = cur?.mp3Markers;
     if (!Array.isArray(markers) || !markers.length || state.activeEngine !== "mp3") return;
-    const t = htmlAudio.currentTime || 0;
+    const activeAudio = getActiveAudio();
+    const t = activeAudio.currentTime || 0;
     let activeM = null;
     for (let i = 0; i < markers.length; i++) {
       const s = parseMarkerSeconds(markers[i].startTime);
@@ -823,6 +912,11 @@ window.DFWolAudio = (function () {
       return;
     }
 
+    if (bufferingGraceTimer) {
+      clearTimeout(bufferingGraceTimer);
+      bufferingGraceTimer = null;
+    }
+
     state.ttsChunkIndex = index;
     const chunk = state.ttsChunks[index];
     const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || "fr";
@@ -830,43 +924,54 @@ window.DFWolAudio = (function () {
     highlightParagraph(chunk);
 
     state.isPlaying = true;
-    state.isBuffering = voiceId !== "system";
+    state.isBuffering = false;
     state.activeEngine = voiceId === "system" ? (isNativeCap() ? "native-tts" : "web-tts") : "neural-mp3";
+
+    if (voiceId !== "system") {
+      // Démarrage progressif du préchargement des 3 segments suivants
+      prefetchWindow(index + 1, lang, voiceId, mySession, 3);
+      bufferingGraceTimer = setTimeout(() => {
+        if (!state.ttsStopRequested && mySession === state.ttsSessionId) {
+          state.isBuffering = true;
+          updatePlayerUI();
+        }
+      }, 140);
+    }
     updatePlayerUI();
 
     const audioRes = voiceId !== "system" ? await getOrPrefetchChunk(index, lang, voiceId, mySession) : null;
-    if (state.ttsStopRequested || mySession !== state.ttsSessionId) {
-      state.isBuffering = false;
-      return;
+    if (bufferingGraceTimer) {
+      clearTimeout(bufferingGraceTimer);
+      bufferingGraceTimer = null;
     }
     state.isBuffering = false;
+    if (state.ttsStopRequested || mySession !== state.ttsSessionId) {
+      return;
+    }
 
     if (audioRes && audioRes.url) {
-      stopMp3Internal();
+      const slot = getActiveAudio();
+      try {
+        slot.pause();
+      } catch (_) {}
       state.activeBlobUrl = audioRes.url;
       state.activeEngine = audioRes.engine || "neural-mp3";
-      htmlAudio.src = audioRes.url;
-      htmlAudio.playbackRate = state.rate;
+      slot.src = audioRes.url;
+      slot.playbackRate = state.rate;
       updatePlayerUI();
 
+      // Prépare le buffer standby sans délai pour une transition instantanée
+      prepareStandbyForIndex(index + 1, lang, voiceId, mySession);
+
       try {
-        await htmlAudio.play();
+        await slot.play();
         state.isPlaying = true;
         updatePlayerUI();
-
-        if (audioRes.engine === "neural-mp3") {
-          if (index + 1 < state.ttsChunks.length) getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
-          if (index + 2 < state.ttsChunks.length) getOrPrefetchChunk(index + 2, lang, voiceId, mySession);
-        } else if (audioRes.engine === "piper-wasm" && index + 1 < state.ttsChunks.length) {
-          setTimeout(() => {
-            if (!state.ttsStopRequested && mySession === state.ttsSessionId) {
-              getOrPrefetchChunk(index + 1, lang, voiceId, mySession);
-            }
-          }, 120);
-        }
         return;
       } catch (_) {
-        stopMp3Internal();
+        try {
+          slot.pause();
+        } catch (_) {}
       }
     }
 
@@ -950,8 +1055,8 @@ window.DFWolAudio = (function () {
         resolvedSubtitle = parsed.citation || resolvedSubtitle;
         resolvedText = parsed.paragraphs.length ? parsed.paragraphs : parsed.plainText;
 
-        if (parsed.docId && window.DFWolNet && item.mode !== "tts") {
-          const mp3Track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, lang);
+        if ((parsed.docId || parsed.pubMeta) && window.DFWolNet && item.mode !== "tts") {
+          const mp3Track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, lang, parsed.pubMeta);
           if (mp3Track && mp3Track.file && mp3Track.file.url) {
             resolvedUrl = mp3Track.file.url;
           }
@@ -961,9 +1066,9 @@ window.DFWolAudio = (function () {
         playNextInQueue();
         return;
       }
-    } else if (!resolvedUrl && item.docId && window.DFWolNet && item.mode !== "tts") {
+    } else if (!resolvedUrl && (item.docId || item.pubMeta) && window.DFWolNet && item.mode !== "tts") {
       try {
-        const mp3Track = await window.DFWolNet.getArticleAudioByDocId(item.docId, lang);
+        const mp3Track = await window.DFWolNet.getArticleAudioByDocId(item.docId, lang, item.pubMeta);
         if (mp3Track && mp3Track.file && mp3Track.file.url) {
           resolvedUrl = mp3Track.file.url;
         }
@@ -976,32 +1081,34 @@ window.DFWolAudio = (function () {
 
     if (resolvedUrl && item.mode !== "tts") {
       item.audioUrl = resolvedUrl;
-      const sameMp3 = state.activeEngine === "mp3" && htmlAudio.src && (htmlAudio.src === resolvedUrl || htmlAudio.src.endsWith(resolvedUrl));
+      const activeAudio = getActiveAudio();
+      const sameMp3 = state.activeEngine === "mp3" && activeAudio.src && (activeAudio.src === resolvedUrl || activeAudio.src.endsWith(resolvedUrl));
       const seekAudioToItem = () => {
+        const curAudio = getActiveAudio();
         if (typeof item.startTimeSec === "number" && isFinite(item.startTimeSec) && item.startTimeSec >= 0) {
-          htmlAudio.currentTime = Math.min(htmlAudio.duration || item.startTimeSec, item.startTimeSec);
-        } else if (typeof item.seekRatio === "number" && isFinite(item.seekRatio) && htmlAudio.duration > 0) {
-          htmlAudio.currentTime = Math.max(0, Math.min(htmlAudio.duration - 1, htmlAudio.duration * item.seekRatio));
+          curAudio.currentTime = Math.min(curAudio.duration || item.startTimeSec, item.startTimeSec);
+        } else if (typeof item.seekRatio === "number" && isFinite(item.seekRatio) && curAudio.duration > 0) {
+          curAudio.currentTime = Math.max(0, Math.min(curAudio.duration - 1, curAudio.duration * item.seekRatio));
         }
         syncMp3MarkerHighlight();
       };
 
       state.activeEngine = "mp3";
       if (!sameMp3) {
-        htmlAudio.src = resolvedUrl;
+        activeAudio.src = resolvedUrl;
       }
-      htmlAudio.playbackRate = state.rate;
+      activeAudio.playbackRate = state.rate;
 
       if (typeof item.startTimeSec === "number" || typeof item.seekRatio === "number") {
-        if (htmlAudio.readyState >= 1) {
+        if (activeAudio.readyState >= 1) {
           seekAudioToItem();
         } else {
-          htmlAudio.addEventListener("loadedmetadata", seekAudioToItem, { once: true });
+          activeAudio.addEventListener("loadedmetadata", seekAudioToItem, { once: true });
         }
       }
 
       try {
-        await htmlAudio.play();
+        await activeAudio.play();
         state.isPlaying = true;
       } catch (_) {
         state.isPlaying = false;
@@ -1177,8 +1284,9 @@ window.DFWolAudio = (function () {
   }
 
   function playPrevInQueue() {
-    if (state.activeEngine === "mp3" && htmlAudio.currentTime > 5) {
-      htmlAudio.currentTime = 0;
+    const activeAudio = getActiveAudio();
+    if (state.activeEngine === "mp3" && activeAudio.currentTime > 5) {
+      activeAudio.currentTime = 0;
       return;
     }
     if (isTtsMode() && state.ttsChunkIndex > 0) {
@@ -1207,9 +1315,10 @@ window.DFWolAudio = (function () {
   }
 
   function togglePlayPause() {
-    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
-      if (htmlAudio.paused) {
-        htmlAudio
+    const activeAudio = getActiveAudio();
+    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && activeAudio.src)) {
+      if (activeAudio.paused) {
+        activeAudio
           .play()
           .then(() => {
             state.isPlaying = true;
@@ -1217,7 +1326,7 @@ window.DFWolAudio = (function () {
           })
           .catch(() => {});
       } else {
-        htmlAudio.pause();
+        activeAudio.pause();
         state.isPlaying = false;
         updatePlayerUI();
       }
@@ -1232,7 +1341,7 @@ window.DFWolAudio = (function () {
             window.speechSynthesis.cancel();
           } catch (_) {}
         }
-        htmlAudio.pause();
+        activeAudio.pause();
         state.isPlaying = false;
         updatePlayerUI();
       } else {
@@ -1247,8 +1356,9 @@ window.DFWolAudio = (function () {
   }
 
   function seekDelta(seconds) {
+    const activeAudio = getActiveAudio();
     if (state.activeEngine === "mp3") {
-      htmlAudio.currentTime = Math.max(0, Math.min(htmlAudio.duration || 0, htmlAudio.currentTime + seconds));
+      activeAudio.currentTime = Math.max(0, Math.min(activeAudio.duration || 0, activeAudio.currentTime + seconds));
     } else if (isTtsMode()) {
       const step = seconds > 0 ? 1 : -1;
       const targetIdx = Math.max(0, Math.min(state.ttsChunks.length - 1, state.ttsChunkIndex + step));
@@ -1264,8 +1374,11 @@ window.DFWolAudio = (function () {
     const rates = [0.75, 0.85, 0.95, 1.0, 1.1, 1.25, 1.4, 1.6, 1.8, 2.0];
     const idx = rates.indexOf(state.rate);
     state.rate = rates[(idx + 1) % rates.length];
-    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && htmlAudio.src)) {
-      htmlAudio.playbackRate = state.rate;
+    const activeAudio = getActiveAudio();
+    if (state.activeEngine === "mp3" || ((state.activeEngine === "neural-mp3" || state.activeEngine === "piper-wasm") && activeAudio.src)) {
+      activeAudio.playbackRate = state.rate;
+      const standby = getStandbyAudio();
+      if (standby) standby.playbackRate = state.rate;
     } else if ((state.activeEngine === "native-tts" || state.activeEngine === "web-tts") && state.isPlaying) {
       const curIdx = state.ttsChunkIndex;
       stopTtsInternal();
@@ -1306,8 +1419,9 @@ window.DFWolAudio = (function () {
     const progressEl = document.getElementById("audio-progress-range");
     const timeEl = document.getElementById("audio-time-label");
     if (state.activeEngine === "mp3") {
-      const dur = htmlAudio.duration || 0;
-      const curT = htmlAudio.currentTime || 0;
+      const activeAudio = getActiveAudio();
+      const dur = activeAudio.duration || 0;
+      const curT = activeAudio.currentTime || 0;
       if (progressEl) {
         progressEl.max = dur > 0 ? Math.floor(dur) : 100;
         progressEl.value = dur > 0 ? Math.floor(curT) : 0;
@@ -1415,43 +1529,87 @@ window.DFWolAudio = (function () {
 
     populateVoiceSelector(window.DFWolGetLang ? window.DFWolGetLang() : "fr");
 
-    htmlAudio.addEventListener("timeupdate", () => {
-      if (state.activeEngine === "mp3") {
-        updateTimeProgressOnly();
-        syncMp3MarkerHighlight();
-      }
-    });
-    htmlAudio.addEventListener("ended", () => {
-      clearArticleHighlights();
-      if (state.activeEngine === "mp3") {
-        playNextInQueue();
-      } else if (isTtsMode() && !state.ttsStopRequested) {
-        const prevChunk = state.ttsChunks[state.ttsChunkIndex];
-        const nextIdx = state.ttsChunkIndex + 1;
-        const nextChunk = state.ttsChunks[nextIdx];
-        const pauseMs = Number(ttsOpts.paragraphPauseMs || 0);
-        if (pauseMs > 0 && prevChunk && nextChunk && nextChunk.pIdx !== prevChunk.pIdx) {
-          const sess = state.ttsSessionId;
-          setTimeout(() => {
-            if (!state.ttsStopRequested && sess === state.ttsSessionId) speakChunkAt(nextIdx);
-          }, pauseMs);
-        } else {
-          speakChunkAt(nextIdx);
-        }
-      }
-    });
-    htmlAudio.addEventListener("error", () => {
-      if (state.activeEngine === "mp3") {
-        const cur = state.queue[state.currentIndex];
-        if (cur && (cur.text || cur.paragraphs)) {
-          cur.mode = "tts";
-          startTrackItem(cur);
-        } else {
+    const advanceGaplessOrFallback = (nextIdx, sess, delayMs = 0) => {
+      const standby = getStandbyAudio();
+      const hasStandbyReady = standbyPreparedIndex === nextIdx && standbyPreparedSession === sess && Boolean(standby.src);
+      const lang = (state.ttsCurrentTrack && state.ttsCurrentTrack.lang) || "fr";
+      const voiceId = getSelectedVoice(lang);
+
+      const triggerNext = () => {
+        if (state.ttsStopRequested || sess !== state.ttsSessionId) return;
+        if (nextIdx >= state.ttsChunks.length) {
+          state.isPlaying = false;
+          clearArticleHighlights();
           playNextInQueue();
+          return;
         }
-      } else if (isTtsMode() && !state.ttsStopRequested) {
-        speakChunkAt(state.ttsChunkIndex + 1);
+        if (hasStandbyReady && standby.src) {
+          activeSlotIdx = 1 - activeSlotIdx;
+          const active = getActiveAudio();
+          state.ttsChunkIndex = nextIdx;
+          state.isPlaying = true;
+          state.isBuffering = false;
+          highlightParagraph(state.ttsChunks[nextIdx]);
+          active.playbackRate = state.rate;
+          active
+            .play()
+            .then(() => {
+              updatePlayerUI();
+              prefetchWindow(nextIdx + 1, lang, voiceId, sess, 3);
+              prepareStandbyForIndex(nextIdx + 1, lang, voiceId, sess);
+            })
+            .catch(() => {
+              speakChunkAt(nextIdx);
+            });
+          updatePlayerUI();
+          return;
+        }
+        speakChunkAt(nextIdx);
+      };
+
+      if (delayMs > 0) {
+        setTimeout(triggerNext, delayMs);
+      } else {
+        triggerNext();
       }
+    };
+
+    audioSlots.forEach((slotEl) => {
+      slotEl.addEventListener("timeupdate", () => {
+        if (slotEl !== getActiveAudio()) return;
+        if (state.activeEngine === "mp3") {
+          updateTimeProgressOnly();
+          syncMp3MarkerHighlight();
+        }
+      });
+      slotEl.addEventListener("ended", () => {
+        if (slotEl !== getActiveAudio()) return;
+        clearArticleHighlights();
+        if (state.activeEngine === "mp3") {
+          playNextInQueue();
+        } else if (isTtsMode() && !state.ttsStopRequested) {
+          const prevChunk = state.ttsChunks[state.ttsChunkIndex];
+          const nextIdx = state.ttsChunkIndex + 1;
+          const nextChunk = state.ttsChunks[nextIdx];
+          const pauseMs = Number(ttsOpts.paragraphPauseMs ?? 150);
+          const delay = pauseMs > 0 && prevChunk && nextChunk && nextChunk.pIdx !== prevChunk.pIdx ? pauseMs : 0;
+          advanceGaplessOrFallback(nextIdx, state.ttsSessionId, delay);
+        }
+      });
+      slotEl.addEventListener("error", () => {
+        if (slotEl !== getActiveAudio()) return;
+        if (state.activeEngine === "mp3") {
+          const cur = state.queue[state.currentIndex];
+          if (cur && (cur.text || cur.paragraphs)) {
+            cur.mode = "tts";
+            startTrackItem(cur);
+          } else {
+            playNextInQueue();
+          }
+        } else if (isTtsMode() && !state.ttsStopRequested) {
+          speakChunkAt(state.ttsChunkIndex + 1);
+        }
+      });
     });
 
     document.getElementById("audio-voice-select")?.addEventListener("change", (e) => {
@@ -1498,7 +1656,7 @@ window.DFWolAudio = (function () {
     progRange?.addEventListener("input", (e) => {
       const val = Number(e.target.value);
       if (state.activeEngine === "mp3") {
-        htmlAudio.currentTime = val;
+        getActiveAudio().currentTime = val;
       } else if (isTtsMode()) {
         const total = Math.max(1, state.ttsChunks.length);
         const pct = total > 1 ? Math.round((val / (total - 1)) * 100) : 0;

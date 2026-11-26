@@ -37,11 +37,24 @@ public class DailyTextWidgetPlugin extends Plugin {
     @PluginMethod
     public void refreshWidget(PluginCall call) {
         Context context = getContext();
-        Intent intent = new Intent(context, DailyTextWidgetProvider.class);
-        intent.setAction(DailyTextWidgetProvider.ACTION_REFRESH_WIDGET);
+        JSObject payload = call.getData();
+        if (payload != null && (payload.has("scriptureText") || payload.has("theme") || payload.has("displayMode"))) {
+            context.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
+                .edit()
+                .putString("dfwol_daily_text_widget_payload", payload.toString())
+                .commit();
+        }
 
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         int[] ids = manager.getAppWidgetIds(new ComponentName(context, DailyTextWidgetProvider.class));
+        if (ids != null) {
+            for (int appWidgetId : ids) {
+                DailyTextWidgetProvider.updateAppWidget(context, manager, appWidgetId);
+            }
+        }
+
+        Intent intent = new Intent(context, DailyTextWidgetProvider.class);
+        intent.setAction(DailyTextWidgetProvider.ACTION_REFRESH_WIDGET);
         intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids);
         context.sendBroadcast(intent);
 

@@ -383,23 +383,69 @@ window.DFWolNet = (function () {
     }
   }
 
-  async function getArticleAudioByDocId(docId, lang = "fr") {
-    if (!docId) return null;
+  function extractPubMetaFromHtml(html = "") {
+    if (!html) return { docId: null, pub: null, issue: null };
+    const artMatch = String(html).match(/<article[^>]*>/i)?.[0] || "";
+    const docId =
+      artMatch.match(/\bdocId-(\d+)\b/i)?.[1] ||
+      String(html).match(/id=["']docId["'][^>]*value=["'](\d+)["']/i)?.[1] ||
+      String(html).match(/data-docid=["'](\d+)["']/i)?.[1] ||
+      String(html).match(/\bdocId-(\d+)\b/i)?.[1] ||
+      null;
+    const pub =
+      artMatch.match(/\bpub-([a-z0-9-]+)\b/i)?.[1] ||
+      String(html).match(/id=["']pubSymbol["'][^>]*value=["']([a-z0-9-]+)["']/i)?.[1] ||
+      null;
+    const issue =
+      artMatch.match(/\bissue-(\d+)\b/i)?.[1] ||
+      String(html).match(/id=["']issue["'][^>]*value=["'](\d+)["']/i)?.[1] ||
+      null;
+    return { docId, pub, issue };
+  }
+
+  async function getArticleAudioByDocId(docId, lang = "fr", meta = {}) {
     const langLetter = getLangLetter(lang);
-    try {
-      const data = await pubMediaGet({
+    const tryQuery = async (params) => {
+      try {
+        const data = await pubMediaGet(params);
+        return (data && data.files && data.files[langLetter] && data.files[langLetter].MP3) || [];
+      } catch (_) {
+        return [];
+      }
+    };
+
+    if (docId) {
+      const tracks = await tryQuery({
         docid: String(docId),
         fileformat: "MP3",
         langwritten: langLetter,
         txtCMSLang: langLetter
       });
-      const tracks = (data && data.files && data.files[langLetter] && data.files[langLetter].MP3) || [];
-      if (!tracks.length) return null;
-      const exact = tracks.find((t) => String(t.docid) === String(docId));
-      return exact || tracks[0];
-    } catch (_) {
-      return null;
+      if (tracks.length) {
+        const exact = tracks.find((t) => String(t.docid) === String(docId));
+        return exact || tracks[0];
+      }
     }
+
+    if (meta && meta.pub && !["ijw", "nwtsty", "nwt"].includes(String(meta.pub).toLowerCase())) {
+      const q = {
+        pub: String(meta.pub),
+        fileformat: "MP3",
+        langwritten: langLetter,
+        txtCMSLang: langLetter
+      };
+      if (meta.issue) q.issue = String(meta.issue);
+      const tracks = await tryQuery(q);
+      if (tracks.length) {
+        if (docId) {
+          const exact = tracks.find((t) => String(t.docid) === String(docId));
+          if (exact) return exact;
+        }
+        return tracks[0];
+      }
+    }
+
+    return null;
   }
 
   async function fetchTextDirect(url) {
@@ -423,8 +469,13 @@ window.DFWolNet = (function () {
       if (mParam) return mParam[1];
     }
     if (html) {
+      const artTag = String(html).match(/<article[^>]*>/i)?.[0] || "";
+      const artDoc = artTag.match(/\bdocId-(\d+)\b/i);
+      if (artDoc) return artDoc[1];
       const mInput = html.match(/id=["']docId["'][^>]*value=["'](\d+)["']/i) || html.match(/data-docid=["'](\d+)["']/i);
       if (mInput) return mInput[1];
+      const bodyDoc = String(html).match(/\bdocId-(\d+)\b/i);
+      if (bodyDoc) return bodyDoc[1];
       const mCanon = html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["'][^"']*\/(\d+)(?:[#?"']|$)/i);
       if (mCanon) return mCanon[1];
     }
@@ -883,6 +934,7 @@ window.DFWolNet = (function () {
     fetchRssFeed,
     fetchBibleComparison,
     extractDocIdFromUrlOrHtml,
+    extractPubMetaFromHtml,
     fetchWolHtml,
     getCacheStats,
     clearHtmlCache

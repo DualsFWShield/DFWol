@@ -8,6 +8,7 @@
 
     <!-- Bandeau supérieur officiel JW.org (#4A6DA7) -->
     <LinearLayout
+        android:id="@+id/widget_header_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="#4A6DA7"

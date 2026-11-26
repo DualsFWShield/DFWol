@@ -275,9 +275,14 @@ export default {
       const pRate = reqUrl.searchParams.get("rate") || "1";
       const pPitch = sanitizeTtsPitch(reqUrl.searchParams.get("pitch") || "0%");
       try {
-        let mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, pPitch);
-        if ((!mp3 || mp3.length === 0) && pPitch !== "0%") {
-          mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, "0%");
+        let mp3;
+        try {
+          mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, pPitch);
+          if (!mp3 || mp3.length === 0) {
+            mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, "0%");
+          }
+        } catch (_) {
+          mp3 = await synthesizeEdgeTtsWorker(text, pVoice, pLang, pRate, pPitch !== "0%" ? "0%" : pPitch);
         }
         return new Response(mp3, {
           status: 200,

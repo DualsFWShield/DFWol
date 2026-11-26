@@ -25,7 +25,7 @@
     bibleLoadedOnce: false,
     widgetSettings: {
       size: "size-4x3",
-      theme: "theme-jw-light",
+      theme: "theme-auto",
       fontScale: 100,
       displayMode: "shortParagraph",
       showCommentary: true
@@ -49,7 +49,7 @@
 
   let deferredPwaPrompt = null;
   const tabHistory = ["dashboard"];
-  const navStack = [];
+  const inTabStacks = { dashboard: [], bible: [], library: [], meetings: [], study: [] };
   let isRestoringNav = false;
   let lastBackExitTime = 0;
 
@@ -62,7 +62,12 @@
       if (parsed.theme) state.theme = parsed.theme;
       if (parsed.readerFontFamily === "serif" || parsed.readerFontFamily === "sans") state.readerFontFamily = parsed.readerFontFamily;
       if (parsed.dtSummaryMode) state.dtSummaryMode = parsed.dtSummaryMode;
-      if (parsed.widgetSettings) state.widgetSettings = Object.assign({}, state.widgetSettings, parsed.widgetSettings);
+      if (parsed.widgetSettings) {
+        state.widgetSettings = Object.assign({}, state.widgetSettings, parsed.widgetSettings);
+        if (!state.widgetSettings.explicitThemeChosen && state.widgetSettings.theme === "theme-jw-light") {
+          state.widgetSettings.theme = "theme-auto";
+        }
+      }
       if (Array.isArray(parsed.savedSearches)) state.savedSearches = parsed.savedSearches;
       if (Array.isArray(parsed.notes)) state.notes = parsed.notes;
       if (parsed.readingProgress && typeof parsed.readingProgress === "object") state.readingProgress = parsed.readingProgress;
@@ -184,33 +189,89 @@
     };
   }
 
-  function pushNavSnapshot(customSnap = null) {
+  function pushWebHistoryState(tag = "nav", count = 1) {
     if (isRestoringNav) return;
-    const snap = customSnap || captureCurrentViewSnapshot();
-    const top = navStack[navStack.length - 1];
-    if (
-      top &&
-      top.tab === snap.tab &&
-      top.meetingsView === snap.meetingsView &&
-      top.meetingsOffset === snap.meetingsOffset &&
-      top.articleUrl === snap.articleUrl &&
-      top.bibleSubtab === snap.bibleSubtab &&
-      top.bibleBook === snap.bibleBook &&
-      top.bibleChapter === snap.bibleChapter &&
-      top.libSubtab === snap.libSubtab &&
-      top.studySubtab === snap.studySubtab
-    ) {
-      return;
-    }
-    navStack.push(snap);
-    if (navStack.length > 40) navStack.shift();
     if (window.history && typeof window.history.pushState === "function") {
       try {
-        window.history.pushState({ dfwolNavIdx: navStack.length }, "");
+        for (let i = 0; i < count; i++) {
+          window.history.pushState({ dfwolNavTag: tag, ts: Date.now() }, "");
+        }
       } catch (_) {}
     }
   }
+  window.DFWolPushHistoryMarker = pushWebHistoryState;
+
+  function snapshotsMatch(a, b) {
+    if (!a || !b) return false;
+    return (
+      a.tab === b.tab &&
+      a.meetingsView === b.meetingsView &&
+      a.meetingsOffset === b.meetingsOffset &&
+      a.articleUrl === b.articleUrl &&
+      a.bibleSubtab === b.bibleSubtab &&
+      a.bibleBook === b.bibleBook &&
+      a.bibleChapter === b.bibleChapter &&
+      a.libSubtab === b.libSubtab &&
+      a.studySubtab === b.studySubtab
+    );
+  }
+
+  function pushNavSnapshot(customSnap = null, targetTab = null) {
+    if (isRestoringNav) return;
+    const snap = customSnap || captureCurrentViewSnapshot();
+    const bucketTab = targetTab || snap.tab || state.activeTab || "dashboard";
+    if (bucketTab === "dashboard" && !targetTab) return;
+    const stack = inTabStacks[bucketTab] || (inTabStacks[bucketTab] = []);
+    const top = stack[stack.length - 1];
+    if (snapshotsMatch(top, snap)) {
+      return;
+    }
+    stack.push(snap);
+    if (stack.length > 35) stack.shift();
+    pushWebHistoryState(bucketTab, 1);
+  }
   window.DFWolPushNavSnapshot = pushNavSnapshot;
+
+  function isTabAtInitialState(tabId = state.activeTab) {
+    if (tabId === "dashboard") return true;
+    if (tabId === "bible") return activeBibleSubtab === "books";
+    if (tabId === "library") {
+      return window.DFWolLibrary?.isAtInitialState ? window.DFWolLibrary.isAtInitialState() : true;
+    }
+    if (tabId === "meetings") return activeMeetingsView === "week" && meetingsWeekOffset === 0;
+    if (tabId === "study") return activeStudySubtab === "notes";
+    return true;
+  }
+
+  async function resetTabToInitialState(tabId = state.activeTab, opts = {}) {
+    if (!tabId) return;
+    inTabStacks[tabId] = [];
+    if (tabId === "dashboard") {
+      document.getElementById("global-study-panel")?.classList.remove("open");
+      document.getElementById("btn-floating-study")?.classList.remove("is-open");
+      if (!opts.silentScroll) window.scrollTo({ top: 0, behavior: opts.smooth === false ? "instant" : "smooth" });
+      return;
+    }
+    if (tabId === "bible") {
+      setBibleView("books", selectedBibleBookNum, { skipNavPush: true, fromHistory: true });
+      window.scrollTo({ top: 0, behavior: opts.smooth === false ? "instant" : "smooth" });
+      return;
+    }
+    if (tabId === "library") {
+      window.DFWolLibrary?.resetToInitial?.();
+      return;
+    }
+    if (tabId === "meetings") {
+      showMeetingsView("week");
+      await loadMeetingsForOffset(0, { skipNavPush: true, fromHistory: true });
+      window.scrollTo({ top: 0, behavior: opts.smooth === false ? "instant" : "smooth" });
+      return;
+    }
+    if (tabId === "study") {
+      setStudyView("notes", { skipNavPush: true, fromHistory: true });
+      window.scrollTo({ top: 0, behavior: opts.smooth === false ? "instant" : "smooth" });
+    }
+  }
   window.DFWolIsRestoringNav = () => isRestoringNav;
   window.DFWolShowMeetingsWeek = () => loadMeetingsForOffset(meetingsWeekOffset);
 
@@ -388,15 +449,17 @@
       options.meetingsView = options.meetingsView || "reader";
     }
 
-    if (!options.fromBack && !options.skipNavPush && !isRestoringNav && state.activeTab !== tabId) {
-      pushNavSnapshot();
+    const tabChanged = state.activeTab !== tabId;
+    if (!options.fromBack && !options.skipNavPush && !isRestoringNav && tabChanged) {
+      if (tabId !== "dashboard") {
+        pushWebHistoryState(`tab-${tabId}`, 1);
+      }
       if (tabHistory[tabHistory.length - 1] !== tabId) {
         tabHistory.push(tabId);
         if (tabHistory.length > 25) tabHistory.shift();
       }
     }
 
-    const tabChanged = state.activeTab !== tabId;
     state.activeTab = tabId;
     document.querySelectorAll(".jw-nav-item").forEach((b) => b.classList.toggle("active", b.getAttribute("data-tab") === tabId));
     document.querySelectorAll(".mbn-item").forEach((b) => b.classList.toggle("active", b.getAttribute("data-tab") === tabId));
@@ -431,16 +494,19 @@
     const curB = window.DFWolReader?.getCurrentBibleState?.();
     const targetB = Number(bookNum);
     const targetCh = Number(chapter);
-    if (
-      !options.fromHistory &&
-      !options.skipNavPush &&
-      !isRestoringNav &&
-      (state.activeTab !== "bible" ||
-        activeBibleSubtab !== "reader" ||
-        Number(curB?.bookNum) !== targetB ||
-        Number(curB?.chapter) !== targetCh)
-    ) {
-      pushNavSnapshot();
+    if (!options.fromHistory && !options.skipNavPush && !isRestoringNav) {
+      if (
+        state.activeTab === "bible" &&
+        (activeBibleSubtab !== "reader" || Number(curB?.bookNum) !== targetB || Number(curB?.chapter) !== targetCh)
+      ) {
+        pushNavSnapshot(null, "bible");
+      } else if (state.activeTab !== "bible") {
+        // Jump depuis un autre onglet : préparer la hiérarchie intra-Bible (Livres -> Chapitres -> Chapitre)
+        inTabStacks.bible.length = 0;
+        inTabStacks.bible.push({ tab: "bible", bibleSubtab: "books", bibleBook: targetB });
+        inTabStacks.bible.push({ tab: "bible", bibleSubtab: "chapters", bibleBook: targetB });
+        pushWebHistoryState("bible-jump", 3);
+      }
     }
     switchTab("bible", { fromBack: true, skipNavPush: true, preserveScroll: true });
     setBibleView("reader", targetB, { skipNavPush: true });
@@ -505,6 +571,7 @@
       return;
     }
 
+    // 1. Lecteur vidéo dans Bibliothèque
     const vidStage = document.getElementById("video-player-stage");
     if (state.activeTab === "library" && vidStage && !vidStage.classList.contains("hidden")) {
       const vidEl = document.getElementById("dfwol-video-el");
@@ -513,36 +580,53 @@
       return;
     }
 
-    if (navStack.length > 0) {
-      const prevSnap = navStack.pop();
+    // 2. Retour interne à l'onglet actif en PRIORITÉ
+    if (state.activeTab === "library" && window.DFWolLibrary?.goBackInTab?.()) {
+      return;
+    }
+
+    if (state.activeTab === "meetings" && activeMeetingsView === "media") {
+      showMeetingsView(window.DFWolReader?.getCurrentArticleData() ? "reader" : "week");
+      return;
+    }
+
+    const tabStack = inTabStacks[state.activeTab];
+    const curSnap = captureCurrentViewSnapshot();
+    while (tabStack && tabStack.length > 0 && snapshotsMatch(tabStack[tabStack.length - 1], curSnap)) {
+      tabStack.pop();
+    }
+    if (tabStack && tabStack.length > 0) {
+      const prevSnap = tabStack.pop();
       await restoreNavSnapshot(prevSnap);
       return;
     }
 
     if (state.activeTab === "bible" && activeBibleSubtab !== "books") {
       if (activeBibleSubtab === "reader") {
-        setBibleView("chapters", selectedBibleBookNum, { fromHistory: true });
+        setBibleView("chapters", selectedBibleBookNum, { fromHistory: true, skipNavPush: true });
       } else {
-        setBibleView("books", selectedBibleBookNum, { fromHistory: true });
+        setBibleView("books", selectedBibleBookNum, { fromHistory: true, skipNavPush: true });
       }
       return;
     }
 
-    if (state.activeTab === "meetings") {
-      if (activeMeetingsView === "media") {
-        showMeetingsView(window.DFWolReader?.getCurrentArticleData() ? "reader" : "week");
-        return;
-      }
-      if (window.DFWolReader && window.DFWolReader.canGoBack()) {
-        if (window.DFWolReader.goBack()) return;
-      }
+    if (state.activeTab === "meetings" && !isTabAtInitialState("meetings")) {
+      await resetTabToInitialState("meetings", { fromBack: true });
+      return;
     }
 
+    if (!isTabAtInitialState(state.activeTab)) {
+      await resetTabToInitialState(state.activeTab, { fromBack: true });
+      return;
+    }
+
+    // 3. Onglet revenu à son état initial -> retour à l'Accueil
     if (state.activeTab !== "dashboard") {
       switchTab("dashboard", { fromBack: true });
       return;
     }
 
+    // 4. Sur l'Accueil à l'état initial -> double Retour pour quitter
     const now = Date.now();
     if (now - lastBackExitTime < 2200) {
       const appPlugin = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
@@ -720,6 +804,19 @@
     }
   }
 
+  function resolveWidgetTheme(rawTheme = state.widgetSettings.theme) {
+    if (!rawTheme || rawTheme === "theme-auto") {
+      return state.theme === "dark" ? "theme-jw-dark" : "theme-jw-light";
+    }
+    return rawTheme;
+  }
+
+  function getEffectiveWidgetSettings() {
+    return Object.assign({}, state.widgetSettings, {
+      theme: resolveWidgetTheme(state.widgetSettings.theme)
+    });
+  }
+
   function applyTheme(theme) {
     state.theme = theme === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", state.theme);
@@ -727,6 +824,10 @@
     const themeSel = document.getElementById("settings-theme-select");
     if (themeSel) themeSel.value = state.theme;
     saveState();
+    updateWidgetPreviews();
+    if (state.dtCurrentData && window.DFWolDailyText) {
+      window.DFWolDailyText.syncWithCapacitorNativeWidget(state.dtCurrentData, getEffectiveWidgetSettings());
+    }
   }
 
   function updateGlobalLanguage(newLang) {
@@ -833,7 +934,7 @@
       }
     }, 900);
 
-    const syncInfo = await window.DFWolDailyText.syncWithCapacitorNativeWidget(data, state.widgetSettings);
+    const syncInfo = await window.DFWolDailyText.syncWithCapacitorNativeWidget(data, getEffectiveWidgetSettings());
     const lastSyncEl = document.getElementById("cap-last-sync-time");
     if (lastSyncEl) {
       lastSyncEl.textContent = `${syncInfo.timestamp} (${syncInfo.nativePlatform ? "Natif" : "PWA/Preferences"})`;
@@ -915,7 +1016,7 @@
 
     targets.forEach((t) => {
       if (!t.card) return;
-      t.card.className = `widget-preview-card ${state.widgetSettings.size} ${state.widgetSettings.theme}`;
+      t.card.className = `widget-preview-card ${state.widgetSettings.size} ${resolveWidgetTheme(state.widgetSettings.theme)}`;
       if (t.word) t.word.textContent = summaries.oneWord.toUpperCase();
       if (t.date) t.date.textContent = data.formattedDate;
       if (t.scripture) {
@@ -1592,7 +1693,7 @@
       { label: "🎵 Contenus Audio & MP3", fn: () => switchTab("library", { libSubtab: "audio" }) },
       { label: "📅 Réunions & Lecteur de Publications", fn: () => switchTab("meetings") },
       { label: "✨ Assistant IA 1-clic & Clé API", fn: () => switchTab("study", { studySubtab: "ai" }) },
-      { label: "🧭 Spiritual Brother (IA 100% locale — 32 outils)", fn: () => switchTab("study", { studySubtab: "brother" }) },
+      { label: "🧭 Spiritual Brother (Tchat IA 100% local)", fn: () => switchTab("study", { studySubtab: "brother" }) },
       { label: "💎 Étude individuelle, Notes & Marque-pages", fn: () => switchTab("study", { studySubtab: "notes" }) },
       { label: "🔖 Marque-pages Rubans", fn: () => switchTab("study", { studySubtab: "bookmarks" }) },
       { label: "🎶 Listes de lecture", fn: () => switchTab("study", { studySubtab: "playlists" }) },
@@ -1816,7 +1917,15 @@
 
   function bindAllEvents() {
     document.querySelectorAll(".jw-nav-item, .mbn-item").forEach((btn) => {
-      btn.addEventListener("click", () => switchTab(btn.getAttribute("data-tab")));
+      btn.addEventListener("click", () => {
+        const targetTab = btn.getAttribute("data-tab");
+        if (!targetTab) return;
+        if (state.activeTab === targetTab) {
+          resetTabToInitialState(targetTab, { smooth: true });
+        } else {
+          switchTab(targetTab);
+        }
+      });
     });
     document.querySelectorAll("[data-goto-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1884,11 +1993,12 @@
       showMeetingsView(window.DFWolReader?.getCurrentArticleData() ? "reader" : "week");
     });
     document.getElementById("btn-meetings-reader-back")?.addEventListener("click", () => {
-      if (window.DFWolReader?.canGoBack() && window.DFWolReader.goBack()) return;
-      if (navStack.length > 0 && navStack[navStack.length - 1].tab === "meetings") {
-        restoreNavSnapshot(navStack.pop());
+      const mStack = inTabStacks.meetings;
+      if (mStack && mStack.length > 0) {
+        restoreNavSnapshot(mStack.pop());
         return;
       }
+      if (window.DFWolReader?.canGoBack() && window.DFWolReader.goBack()) return;
       loadMeetingsForOffset(meetingsWeekOffset, { fromHistory: true });
     });
     document.getElementById("btn-reader-top-week")?.addEventListener("click", () => {
@@ -2292,12 +2402,13 @@
     });
 
     document.getElementById("btn-bible-back")?.addEventListener("click", () => {
-      if (navStack.length > 0) {
-        restoreNavSnapshot(navStack.pop());
+      const bStack = inTabStacks.bible;
+      if (bStack && bStack.length > 0) {
+        restoreNavSnapshot(bStack.pop());
         return;
       }
-      if (activeBibleSubtab === "reader") setBibleView("chapters", selectedBibleBookNum, { fromHistory: true });
-      else setBibleView("books", selectedBibleBookNum, { fromHistory: true });
+      if (activeBibleSubtab === "reader") setBibleView("chapters", selectedBibleBookNum, { fromHistory: true, skipNavPush: true });
+      else setBibleView("books", selectedBibleBookNum, { fromHistory: true, skipNavPush: true });
     });
 
     document.getElementById("btn-bible-top-search")?.addEventListener("click", () => {
@@ -2604,7 +2715,7 @@
       saveState();
       updateWidgetPreviews();
       if (state.dtCurrentData) {
-        window.DFWolDailyText.syncWithCapacitorNativeWidget(state.dtCurrentData, state.widgetSettings);
+        window.DFWolDailyText.syncWithCapacitorNativeWidget(state.dtCurrentData, getEffectiveWidgetSettings());
       }
     };
 
@@ -2614,6 +2725,7 @@
     });
     document.getElementById("widget-theme-select")?.addEventListener("change", (e) => {
       state.widgetSettings.theme = e.target.value;
+      state.widgetSettings.explicitThemeChosen = e.target.value !== "theme-auto";
       syncWidgetUi();
     });
     document.getElementById("widget-font-scale")?.addEventListener("input", (e) => {
@@ -2626,7 +2738,7 @@
       const url = window.DFWolDailyText.generateWidgetPngCard(
         document.getElementById("widget-export-canvas"),
         state.dtCurrentData,
-        state.widgetSettings.theme
+        resolveWidgetTheme(state.widgetSettings.theme)
       );
       if (url) {
         const a = document.createElement("a");
@@ -2820,7 +2932,7 @@
 
       const pauseSel = document.getElementById("settings-tts-pause");
       if (pauseSel) {
-        pauseSel.value = String(opts.paragraphPauseMs ?? 400);
+        pauseSel.value = String(opts.paragraphPauseMs ?? 150);
         pauseSel.addEventListener("change", (e) => {
           window.DFWolAudio.setTtsOptions({ paragraphPauseMs: Number(e.target.value) });
         });
@@ -3048,6 +3160,13 @@
       swShell?.setAttribute("aria-hidden", "false");
       appShell?.classList.add("hidden");
       appShell?.setAttribute("aria-hidden", "true");
+      window.addEventListener("storage", (ev) => {
+        if (ev.key === STATE_KEY || ev.key === "dfwol_daily_text_widget_payload") {
+          loadState();
+          applyTheme(state.theme);
+          updateWidgetPreviews();
+        }
+      });
       return;
     }
     if (params.get("open") === "daily-text") {
@@ -3102,7 +3221,7 @@
     const thSel = document.getElementById("widget-theme-select");
     if (thSel) {
       const legacyMap = { "theme-sapphire": "theme-jw-blue", "theme-midnight": "theme-jw-dark", "theme-emerald": "theme-jw-blue" };
-      const mapped = legacyMap[state.widgetSettings.theme] || state.widgetSettings.theme || "theme-jw-light";
+      const mapped = legacyMap[state.widgetSettings.theme] || state.widgetSettings.theme || "theme-auto";
       state.widgetSettings.theme = mapped;
       thSel.value = mapped;
     }

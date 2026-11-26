@@ -7,6 +7,12 @@ window.DFWolReader = (function () {
   "use strict";
 
   const HIGHLIGHTS_KEY = "dfwol_highlights_v1";
+  const LAST_HL_COLOR_KEY = "dfwol_last_hl_color_v1";
+  let lastHlColor = "yellow";
+  try {
+    const savedCol = localStorage.getItem(LAST_HL_COLOR_KEY);
+    if (["yellow", "pink", "blue", "green"].includes(savedCol)) lastHlColor = savedCol;
+  } catch (_) {}
   const articleHistory = [];
   let articleHistoryPos = -1;
   let currentArticleData = null;
@@ -19,11 +25,12 @@ window.DFWolReader = (function () {
   let activeSelectionRange = null;
   let activeSelectionText = "";
   let activeSelectionPid = "";
-  let selectionChangeTimer = null;
+  let activeHighlightMarkEl = null;
   let activeHighlightMarkId = null;
   let activeHighlightDocKey = null;
   let activeHighlightDocTitle = "";
   let activeHighlightDocUrl = "";
+  let justFinishedHlAt = 0;
   let activeStudyPaneTab = "notes";
   const inappListeners = new WeakMap();
   const fnMrCache = new Map();
@@ -579,6 +586,7 @@ window.DFWolReader = (function () {
     activeSelectionRange = null;
     activeSelectionText = "";
     activeSelectionPid = "";
+    activeHighlightMarkEl = null;
     activeHighlightMarkId = null;
   }
 
@@ -617,7 +625,17 @@ window.DFWolReader = (function () {
     const ctx = resolveSelectionContext(markEl);
     if (!toolbar || !ctx || !markEl) return;
     activeSelectionRange = null;
+    activeHighlightMarkEl = markEl;
     activeHighlightMarkId = markEl.getAttribute("data-hl-id");
+    const saved = activeHighlightMarkId ? getAllHighlights().find((h) => h.id === activeHighlightMarkId) : null;
+    const sameMarks = activeHighlightMarkId
+      ? Array.from(ctx.container?.querySelectorAll(`mark.jw-hl[data-hl-id="${activeHighlightMarkId}"]`) || [])
+      : [markEl];
+    activeSelectionText = cleanStr(saved?.quote || sameMarks.map((m) => m.textContent).join(" ") || markEl.textContent || "");
+    activeSelectionPid =
+      markEl.closest("[data-reader-pid]")?.getAttribute("data-reader-pid") ||
+      markEl.closest(".bible-verse-row")?.getAttribute("data-select-verse") ||
+      "";
     activeHighlightDocKey = ctx.docKey;
     activeHighlightDocTitle = ctx.docTitle;
     activeHighlightDocUrl = ctx.docUrl;
@@ -893,10 +911,12 @@ window.DFWolReader = (function () {
 
     const plainText = paragraphs.map((p) => p.text).join("\n\n");
     const langFromUrl = /\/en\/wol\/|lp-e|wtlocale=E/i.test(effectiveUrl) ? "en" : "fr";
+    const pubMeta = window.DFWolNet?.extractPubMetaFromHtml?.(res.html) || { docId: null, pub: null, issue: null };
 
     return {
       url: effectiveUrl,
-      docId: res.docId || window.DFWolNet.extractDocIdFromUrlOrHtml(effectiveUrl, res.html),
+      docId: res.docId || pubMeta.docId || window.DFWolNet.extractDocIdFromUrlOrHtml(effectiveUrl, res.html),
+      pubMeta,
       lang: langFromUrl,
       title,
       citation,
@@ -998,8 +1018,47 @@ window.DFWolReader = (function () {
     }
   }
 
+  async function resolveArticleMp3Async(parsed, expectedReqId = null) {
+    if (!parsed || (!parsed.docId && !parsed.pubMeta?.pub)) return null;
+    try {
+      const track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, parsed.lang, parsed.pubMeta);
+      if (expectedReqId !== null && expectedReqId !== articleRequestSeq) return null;
+      const mp3Btn = document.getElementById("reader-btn-mp3");
+      const mp3DlBtn = document.getElementById("reader-btn-mp3-dl");
+      const topAudioBtn = document.getElementById("btn-reader-top-audio");
+      if (track && track.file && track.file.url) {
+        parsed.mp3Url = track.file.url;
+        parsed.mp3Markers = track.markers?.markers || [];
+        parsed.mp3Duration = Number(track.duration || 0);
+        if (currentArticleData === parsed) {
+          currentArticleData.mp3Url = parsed.mp3Url;
+          currentArticleData.mp3Markers = parsed.mp3Markers;
+          currentArticleData.mp3Duration = parsed.mp3Duration;
+        }
+        mp3Btn?.classList.remove("hidden");
+        mp3DlBtn?.classList.remove("hidden");
+        topAudioBtn?.classList.add("has-official-mp3");
+        return parsed.mp3Url;
+      }
+      parsed.mp3Url = null;
+      parsed.mp3Markers = [];
+      mp3Btn?.classList.add("hidden");
+      mp3DlBtn?.classList.add("hidden");
+      topAudioBtn?.classList.remove("has-official-mp3");
+    } catch (_) {}
+    return null;
+  }
+
+  async function resolveCurrentArticleMp3() {
+    if (!currentArticleData) return null;
+    if (currentArticleData.mp3Url) return currentArticleData.mp3Url;
+    return resolveArticleMp3Async(currentArticleData, articleRequestSeq);
+  }
+
   function openParsedArticleObject(parsed, options = {}) {
+    const reqId = ++articleRequestSeq;
     renderArticleToDom(parsed, options);
+    resolveArticleMp3Async(parsed, reqId);
   }
 
   async function openArticleInApp(wolUrlOrDocId, options = {}) {
@@ -1067,30 +1126,7 @@ window.DFWolReader = (function () {
       renderArticleToDom(parsed, Object.assign({}, options, { targetUrl }));
 
       // Vérification asynchrone d'un MP3 officiel via PubMedia (+ marqueurs par paragraphe)
-      if (parsed.docId) {
-        const track = await window.DFWolNet.getArticleAudioByDocId(parsed.docId, parsed.lang);
-        if (reqId !== articleRequestSeq) return;
-        const topAudioBtn = document.getElementById("btn-reader-top-audio");
-        if (track && track.file && track.file.url) {
-          parsed.mp3Url = track.file.url;
-          parsed.mp3Markers = track.markers?.markers || [];
-          parsed.mp3Duration = Number(track.duration || 0);
-          if (currentArticleData === parsed) {
-            currentArticleData.mp3Url = parsed.mp3Url;
-            currentArticleData.mp3Markers = parsed.mp3Markers;
-            currentArticleData.mp3Duration = parsed.mp3Duration;
-          }
-          mp3Btn?.classList.remove("hidden");
-          mp3DlBtn?.classList.remove("hidden");
-          topAudioBtn?.classList.add("has-official-mp3");
-        } else {
-          parsed.mp3Url = null;
-          parsed.mp3Markers = [];
-          mp3Btn?.classList.add("hidden");
-          mp3DlBtn?.classList.add("hidden");
-          topAudioBtn?.classList.remove("has-official-mp3");
-        }
-      }
+      await resolveArticleMp3Async(parsed, reqId);
     } catch (err) {
       if (reqId !== articleRequestSeq) return;
       if (titleEl) titleEl.textContent = "Chargement interrompu";
@@ -2232,47 +2268,271 @@ window.DFWolReader = (function () {
       }
     });
 
-    // Barre flottante de sélection & surlignage (Desktop + Mobile tactile via selectionchange)
-    ["reader-article-body", "bible-reader-body"].forEach((id) => {
-      const container = document.getElementById(id);
-      if (!container) return;
-      container.addEventListener("mouseup", () => setTimeout(showSelectionToolbarAtSelection, 25));
-      container.addEventListener("touchend", () => setTimeout(showSelectionToolbarAtSelection, 120));
+    // Surlignage tactile personnalisé (appui long + glissement, sans sélection native)
+    // Appuyer sur un passage déjà surligné ouvre le menu ; cliquer > ouvre le menu contextuel
+    const getValidTextNodes = (container) => {
+      const list = [];
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+      let n;
+      while ((n = walker.nextNode())) {
+        if (!n.nodeValue || !n.nodeValue.length) continue;
+        if (n.parentElement?.closest("script, style, button, .jw-ai-inline-bar, .bible-v-num, .pageNum, .dc-screenReaderText, .gen-field")) {
+          continue;
+        }
+        list.push(n);
+      }
+      return list;
+    };
+
+    const getCharOffsetFromPoint = (container, clientX, clientY) => {
+      let node = null;
+      let offset = 0;
+      if (typeof document.caretRangeFromPoint === "function") {
+        const cr = document.caretRangeFromPoint(clientX, clientY);
+        if (cr) {
+          node = cr.startContainer;
+          offset = cr.startOffset;
+        }
+      } else if (typeof document.caretPositionFromPoint === "function") {
+        const cp = document.caretPositionFromPoint(clientX, clientY);
+        if (cp) {
+          node = cp.offsetNode;
+          offset = cp.offset;
+        }
+      }
+
+      const nodes = getValidTextNodes(container);
+      if (!nodes.length) return null;
+
+      if (node && node.nodeType === Node.ELEMENT_NODE && container.contains(node)) {
+        const inner = getValidTextNodes(node);
+        if (inner.length) {
+          node = inner[0];
+          offset = 0;
+        }
+      }
+
+      let targetNode = nodes.includes(node) ? node : null;
+      if (!targetNode) {
+        let bestDist = Infinity;
+        for (const tn of nodes) {
+          const r = document.createRange();
+          r.selectNodeContents(tn);
+          const rect = r.getBoundingClientRect();
+          if (rect.width === 0 && rect.height === 0) continue;
+          const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+          const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+          const d = dx * dx + dy * dy * 4;
+          if (d < bestDist) {
+            bestDist = d;
+            targetNode = tn;
+            offset = clientX <= rect.left ? 0 : clientX >= rect.right ? tn.nodeValue.length : Math.floor(tn.nodeValue.length / 2);
+          }
+        }
+      }
+      if (!targetNode) return null;
+
+      const txt = targetNode.nodeValue;
+      const wordRe = /[\p{L}\p{N}'’_-]/u;
+      let s = Math.min(Math.max(0, offset), txt.length);
+      let e = s;
+      if (s > 0 && !wordRe.test(txt[s] || "") && wordRe.test(txt[s - 1])) s--;
+      while (s > 0 && wordRe.test(txt[s - 1])) s--;
+      while (e < txt.length && wordRe.test(txt[e])) e++;
+      if (e === s && txt.length > 0) e = Math.min(txt.length, s + 1);
+
+      let acc = 0;
+      for (const tn of nodes) {
+        if (tn === targetNode) {
+          return { wordStart: acc + s, wordEnd: acc + e };
+        }
+        acc += tn.nodeValue.length;
+      }
+      return null;
+    };
+
+    const clearLiveMarks = (container) => {
+      container.querySelectorAll('mark[data-live-hl="1"]').forEach((m) => {
+        const p = m.parentNode;
+        m.replaceWith(document.createTextNode(m.textContent || ""));
+        p && p.normalize();
+      });
+    };
+
+    const extractSpanTextAndPaint = (container, spanStart, spanEnd, color, isLive, hlId = null) => {
+      const nodes = getValidTextNodes(container);
+      const segments = [];
+      let acc = 0;
+      const parts = [];
+      nodes.forEach((tn) => {
+        const nLen = tn.nodeValue.length;
+        const nStart = acc;
+        const nEnd = acc + nLen;
+        acc = nEnd;
+        const oStart = Math.max(spanStart, nStart) - nStart;
+        const oEnd = Math.min(spanEnd, nEnd) - nStart;
+        if (oEnd > oStart) {
+          parts.push(tn.nodeValue.slice(oStart, oEnd));
+          if (!tn.parentElement?.closest("mark.jw-hl")) {
+            segments.push({ node: tn, oStart, oEnd });
+          }
+        }
+      });
+
+      segments.forEach(({ node, oStart, oEnd }) => {
+        try {
+          const r = document.createRange();
+          r.setStart(node, oStart);
+          r.setEnd(node, oEnd);
+          const mark = document.createElement("mark");
+          mark.className = `jw-hl hl-${color}${isLive ? " is-live-hl" : ""}`;
+          if (isLive) mark.setAttribute("data-live-hl", "1");
+          if (hlId) mark.setAttribute("data-hl-id", hlId);
+          r.surroundContents(mark);
+        } catch (_) {}
+      });
+
+      return cleanStr(parts.join(" "));
+    };
+
+    const bindContainerHighlightGesture = (container) => {
+      let holdTimer = null;
+      let isDraggingHl = false;
+      let activePid = null;
+      let anchorWord = null;
+      let currentSpan = null;
+      let downX = 0;
+      let downY = 0;
+
+      const cancelDragState = () => {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        container.classList.remove("is-hl-dragging");
+      };
+
+      container.addEventListener("pointerdown", (e) => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        if (e.target.closest("a, button, input, textarea, select, .gen-field, mark.jw-hl")) return;
+        if (!resolveSelectionContext(e.target)) return;
+
+        downX = e.clientX;
+        downY = e.clientY;
+        activePid = e.pointerId;
+        isDraggingHl = false;
+        anchorWord = null;
+        currentSpan = null;
+
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          const wordSpan = getCharOffsetFromPoint(container, downX, downY);
+          if (!wordSpan) return;
+          isDraggingHl = true;
+          anchorWord = wordSpan;
+          currentSpan = { start: wordSpan.wordStart, end: wordSpan.wordEnd };
+          container.classList.add("is-hl-dragging");
+          try {
+            window.getSelection()?.removeAllRanges();
+          } catch (_) {}
+          try {
+            container.setPointerCapture?.(activePid);
+          } catch (_) {}
+          if (typeof navigator.vibrate === "function") {
+            try { navigator.vibrate(15); } catch (_) {}
+          }
+          clearLiveMarks(container);
+          extractSpanTextAndPaint(container, currentSpan.start, currentSpan.end, lastHlColor, true);
+        }, 280);
+      });
+
+      container.addEventListener("pointermove", (e) => {
+        if (!isDraggingHl) {
+          if (holdTimer && (Math.abs(e.clientX - downX) > 10 || Math.abs(e.clientY - downY) > 10)) {
+            clearTimeout(holdTimer);
+            holdTimer = null;
+          }
+          return;
+        }
+        if (e.pointerId !== activePid) return;
+        e.preventDefault();
+        const curWord = getCharOffsetFromPoint(container, e.clientX, e.clientY);
+        if (!curWord || !anchorWord) return;
+        const start = Math.min(anchorWord.wordStart, curWord.wordStart);
+        const end = Math.max(anchorWord.wordEnd, curWord.wordEnd);
+        if (!currentSpan || currentSpan.start !== start || currentSpan.end !== end) {
+          currentSpan = { start, end };
+          clearLiveMarks(container);
+          extractSpanTextAndPaint(container, start, end, lastHlColor, true);
+        }
+      });
+
+      const finishGesture = () => {
+        cancelDragState();
+        if (!isDraggingHl) return;
+        isDraggingHl = false;
+        const finalSpan = currentSpan;
+        currentSpan = null;
+        anchorWord = null;
+        try {
+          container.releasePointerCapture?.(activePid);
+        } catch (_) {}
+
+        clearLiveMarks(container);
+        if (!finalSpan || finalSpan.end <= finalSpan.start) return;
+
+        const ctx = resolveSelectionContext(container.firstElementChild || container);
+        if (!ctx) return;
+        const quote = extractSpanTextAndPaint(container, finalSpan.start, finalSpan.end, lastHlColor, false, "pending");
+        if (!quote || quote.length < 2) {
+          container.querySelectorAll('mark.jw-hl[data-hl-id="pending"]').forEach((m) => {
+            const p = m.parentNode;
+            m.replaceWith(document.createTextNode(m.textContent || ""));
+            p && p.normalize();
+          });
+          return;
+        }
+
+        const hl = addHighlight(ctx.docKey, ctx.docTitle, ctx.docUrl, quote, lastHlColor);
+        if (hl) {
+          container.querySelectorAll('mark.jw-hl[data-hl-id="pending"]').forEach((m) => {
+            m.setAttribute("data-hl-id", hl.id);
+          });
+          justFinishedHlAt = Date.now();
+          window.DFWolRenderHighlights && window.DFWolRenderHighlights();
+        }
+        try {
+          window.getSelection()?.removeAllRanges();
+        } catch (_) {}
+      };
+
+      container.addEventListener("pointerup", finishGesture);
+      container.addEventListener("pointercancel", finishGesture);
+
       container.addEventListener("click", (e) => {
+        if (Date.now() - justFinishedHlAt < 90) return;
         const hlMark = e.target.closest("mark.jw-hl[data-hl-id]");
-        const sel = window.getSelection()?.toString().trim();
-        if (hlMark && !sel && !e.target.closest("a, button")) {
+        if (hlMark && !e.target.closest("a, button")) {
           e.stopPropagation();
           showSelectionToolbarAtElement(hlMark);
         }
       });
-    });
+    };
 
-    document.addEventListener("selectionchange", () => {
-      clearTimeout(selectionChangeTimer);
-      selectionChangeTimer = setTimeout(() => {
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-          const range = sel.getRangeAt(0);
-          if (resolveSelectionContext(range.commonAncestorContainer)) {
-            showSelectionToolbarAtSelection();
-          }
-        }
-      }, 130);
+    ["reader-article-body", "bible-reader-body"].forEach((id) => {
+      const container = document.getElementById(id);
+      if (container) bindContainerHighlightGesture(container);
     });
 
     document.addEventListener("pointerdown", (e) => {
       const tb = document.getElementById("text-selection-toolbar");
-      if (tb && !tb.classList.contains("hidden") && !tb.contains(e.target)) {
-        if (!e.target.closest("#reader-article-body, #bible-reader-body")) {
-          hideSelectionToolbar();
-        }
+      if (tb && !tb.classList.contains("hidden") && !tb.contains(e.target) && !e.target.closest("mark.jw-hl[data-hl-id]")) {
+        hideSelectionToolbar();
       }
     });
 
     const selTb = document.getElementById("text-selection-toolbar");
     if (selTb) {
-      // Empêche le tactile mobile de perdre window.getSelection() avant l'événement click
       selTb.querySelectorAll("button").forEach((b) => {
         b.addEventListener("pointerdown", (e) => e.preventDefault());
         b.addEventListener("touchstart", (e) => e.preventDefault(), { passive: false });
@@ -2282,7 +2542,11 @@ window.DFWolReader = (function () {
         btn.addEventListener("click", (e) => {
           e.preventDefault();
           const color = btn.getAttribute("data-hl-color");
-          if (activeHighlightMarkId && !activeSelectionRange && !activeSelectionText) {
+          lastHlColor = color;
+          try {
+            localStorage.setItem(LAST_HL_COLOR_KEY, color);
+          } catch (_) {}
+          if (activeHighlightMarkId) {
             const list = getAllHighlights().map((h) => (h.id === activeHighlightMarkId ? Object.assign({}, h, { color }) : h));
             saveAllHighlights(list);
             document.querySelectorAll(`mark.jw-hl[data-hl-id="${activeHighlightMarkId}"]`).forEach((m) => {
@@ -2293,29 +2557,7 @@ window.DFWolReader = (function () {
             window.DFWolToast && window.DFWolToast("Couleur de surlignage mise à jour.");
             return;
           }
-          const selText = activeSelectionText || (activeSelectionRange ? activeSelectionRange.toString().trim() : window.getSelection()?.toString().trim());
-          const ctx = resolveSelectionContext(activeSelectionRange?.commonAncestorContainer);
-          const inBible = activeHighlightDocKey?.startsWith("bible:") || ctx?.container?.id === "bible-reader-body";
-          const targetContainer = ctx?.container || document.getElementById(inBible ? "bible-reader-body" : "reader-article-body");
-          const docKey = activeHighlightDocKey || ctx?.docKey || currentArticleData?.docId || currentArticleData?.url;
-          const docTitle = activeHighlightDocTitle || ctx?.docTitle || currentArticleData?.title || "Extrait";
-          const docUrl = activeHighlightDocUrl || ctx?.docUrl || currentArticleData?.url || "";
-          if (!selText || !docKey) return;
-
-          const hl = addHighlight(docKey, docTitle, docUrl, selText, color);
-          if (hl && targetContainer) {
-            let wrapped = false;
-            if (activeSelectionRange && targetContainer.contains(activeSelectionRange.commonAncestorContainer)) {
-              wrapped = wrapRangeSafely(activeSelectionRange, hl);
-            }
-            if (!wrapped) {
-              wrapQuoteInContainer(targetContainer, hl);
-            }
-          }
-          window.getSelection()?.removeAllRanges();
           hideSelectionToolbar();
-          window.DFWolRenderHighlights && window.DFWolRenderHighlights();
-          window.DFWolToast && window.DFWolToast("Passage surligné !");
         });
       });
 
@@ -2329,76 +2571,39 @@ window.DFWolReader = (function () {
       });
 
       document.getElementById("sel-btn-close")?.addEventListener("click", () => {
-        window.getSelection()?.removeAllRanges();
         hideSelectionToolbar();
-      });
-
-      document.getElementById("sel-btn-listen")?.addEventListener("click", () => {
-        const selText = activeSelectionText || window.getSelection()?.toString().trim() || "";
-        const inBible = activeHighlightDocKey?.startsWith("bible:");
-        const pid = activeSelectionPid;
-        hideSelectionToolbar();
-        if (!window.DFWolAudio) return;
-        if (inBible && pid && currentBibleState?.primaryData?.mp3Url) {
-          window.DFWolAudio.playMp3FromVerse(Number(pid), currentBibleState.primaryData);
-        } else if (!inBible && pid && currentArticleData?.mp3Url) {
-          window.DFWolAudio.playMp3FromParagraph(pid, currentArticleData);
-        } else if (selText) {
-          window.DFWolAudio.playTrack({
-            title: activeHighlightDocTitle || currentArticleData?.title || "Sélection",
-            subtitle: "Lecture vocale",
-            text: selText,
-            lang: (window.DFWolGetLang && window.DFWolGetLang()) || "fr",
-            mode: "tts"
-          });
-        }
       });
 
       document.getElementById("sel-btn-note")?.addEventListener("click", () => {
-        const selText = activeSelectionText || (activeSelectionRange ? activeSelectionRange.toString().trim() : window.getSelection()?.toString().trim());
-        const ctx = resolveSelectionContext(activeSelectionRange?.commonAncestorContainer);
+        const selText = activeSelectionText;
         if (selText && window.DFWolAddNote) {
-          window.DFWolAddNote(activeHighlightDocTitle || ctx?.docTitle || "Extrait d'étude", ctx?.tag || "Étude Perso", selText, {
-            docKey: activeHighlightDocKey || ctx?.docKey,
-            url: activeHighlightDocUrl || ctx?.docUrl
+          window.DFWolAddNote(activeHighlightDocTitle || "Extrait d'étude", activeHighlightDocKey?.startsWith("bible:") ? "Étude Perso" : "Réunion", selText, {
+            docKey: activeHighlightDocKey,
+            url: activeHighlightDocUrl
           });
         }
         hideSelectionToolbar();
       });
 
       document.getElementById("sel-btn-copy")?.addEventListener("click", () => {
-        const selText = activeSelectionText || (activeSelectionRange ? activeSelectionRange.toString().trim() : window.getSelection()?.toString().trim());
+        const selText = activeSelectionText;
         if (selText && window.DFWolStudy) {
           window.DFWolStudy.safeCopyText(selText, "Extrait copié !");
         }
         hideSelectionToolbar();
       });
 
-      document.getElementById("sel-btn-search")?.addEventListener("click", () => {
-        const selText = activeSelectionText || (activeSelectionRange ? activeSelectionRange.toString().trim() : window.getSelection()?.toString().trim());
+      document.getElementById("sel-btn-more")?.addEventListener("click", () => {
+        const markTarget =
+          activeHighlightMarkEl ||
+          (activeHighlightMarkId ? document.querySelector(`mark.jw-hl[data-hl-id="${activeHighlightMarkId}"]`) : null);
+        const tbRect = selTb.getBoundingClientRect();
+        const markRect = markTarget?.getBoundingClientRect();
+        const x = markRect ? markRect.left : tbRect.left;
+        const y = markRect ? markRect.bottom + 6 : tbRect.top;
         hideSelectionToolbar();
-        if (selText && window.DFWolSwitchTab) {
-          window.DFWolSwitchTab("library", { libSubtab: "search" });
-          const inp = document.getElementById("adv-search-input");
-          if (inp) {
-            inp.value = selText.slice(0, 120);
-            document.getElementById("advanced-search-form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-          }
-        }
-      });
-
-      document.getElementById("sel-btn-ai")?.addEventListener("click", () => {
-        const selText = activeSelectionText || (activeSelectionRange ? activeSelectionRange.toString().trim() : window.getSelection()?.toString().trim());
-        hideSelectionToolbar();
-        if (selText && window.DFWolAI) {
-          window.DFWolAI.prepareAndOpen({
-            title: activeHighlightDocTitle || currentArticleData?.title || "Extrait sélectionné",
-            citation: currentArticleData?.citation || "",
-            question: `Explique cet extrait et ses références bibliques : « ${selText.slice(0, 280)} »`,
-            contextText: selText,
-            refsText: selText,
-            lang: currentArticleData?.lang || (window.DFWolGetLang ? window.DFWolGetLang() : "fr")
-          });
+        if (markTarget && window.DFWolStudy?.openContextMenuForElement) {
+          window.DFWolStudy.openContextMenuForElement(markTarget, x, y);
         }
       });
     }
@@ -2429,6 +2634,7 @@ window.DFWolReader = (function () {
     fetchArticleParsed,
     openArticleInApp,
     openParsedArticleObject,
+    resolveCurrentArticleMp3,
     fetchBibleChapterParsed,
     fetchWolFootnoteOrMarginal,
     openBibleChapter,

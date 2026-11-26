@@ -280,7 +280,9 @@ function synthesizeEdgeTtsNode(text, voice, lang, rate, pitch = "0%") {
         } else if (op === 8) {
           clearTimeout(timer);
           sock.end();
-          return resolve(Buffer.concat(mp3Chunks));
+          const out = Buffer.concat(mp3Chunks);
+          if (out.length === 0) return reject(new Error("Empty Edge TTS close frame"));
+          return resolve(out);
         }
       }
     });
@@ -322,15 +324,12 @@ const server = http.createServer(async (req, res) => {
       } else {
         try {
           mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, pitch);
-          if ((!mp3 || mp3.length === 0) && pitch !== "0%") {
+          if (!mp3 || mp3.length === 0) {
             mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, "0%");
           }
         } catch (ttsErr) {
-          if (pitch !== "0%") {
-            mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, "0%");
-          } else {
-            throw ttsErr;
-          }
+          await new Promise((r) => setTimeout(r, 180));
+          mp3 = await synthesizeEdgeTtsNode(text, voice, lang, rate, pitch !== "0%" ? "0%" : pitch);
         }
         if (mp3 && mp3.length > 0) {
           ttsServerCache.set(cacheKey, mp3);
